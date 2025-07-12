@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -67,76 +68,79 @@ export default function HomePage() {
   };
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="text-center space-y-4">
-        <h1 className="text-4xl font-bold text-gray-900">
-          Welcome to EduRaksha Agent
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-100 py-10 px-2 md:px-0">
+      {/* Hero Section */}
+      <div className="relative max-w-4xl mx-auto text-center py-12 mb-10 rounded-3xl bg-white/80 shadow-xl border border-blue-100 backdrop-blur-lg">
+        <img src="/globe.svg" alt="Globe" className="absolute left-6 top-6 w-16 h-16 opacity-20 pointer-events-none select-none" />
+        <h1 className="text-5xl md:text-6xl font-extrabold text-blue-900 drop-shadow mb-4 tracking-tight">
+          EduRaksha Agent
         </h1>
-        <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-          Your privacy-preserving student verification system. Generate Zero-Knowledge Proofs 
-          to prove your eligibility without revealing sensitive personal information.
+        <p className="text-2xl text-gray-700 max-w-2xl mx-auto mb-6 font-medium">
+          Privacy-preserving student verification. Generate Zero-Knowledge Proofs to prove eligibility without revealing sensitive information.
         </p>
+        <div className="flex flex-wrap justify-center gap-4 mt-6">
+          <Button size="lg" className="bg-blue-700 hover:bg-blue-800 text-white shadow-lg px-8 py-3 text-lg font-semibold" onClick={() => router.push('/zkp-generator')}>
+            <span className="mr-2">🔒</span> Generate New Proof
+          </Button>
+          <Button size="lg" variant="outline" className="border-blue-700 text-blue-700 hover:bg-blue-50 px-8 py-3 text-lg font-semibold" onClick={() => router.push('/verifier')}>
+            <span className="mr-2">✅</span> Verify Proof
+          </Button>
+        </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-blue-600">{sampleCredentials.length}</div>
-              <div className="text-sm text-gray-600">Available Credentials</div>
+      {/* Stats Section */}
+      <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+        <Card className="bg-gradient-to-r from-blue-100 to-blue-50 border-0 shadow-md">
+          <CardContent className="p-8 flex flex-col items-center">
+            <div className="flex items-center mb-2">
+              <span className="text-4xl mr-2">📄</span>
+              <span className="text-4xl font-bold text-blue-700">{sampleCredentials.length}</span>
             </div>
+            <div className="text-lg text-blue-900 font-medium">Available Credentials</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-green-600">0</div>
-              <div className="text-sm text-gray-600">Generated Proofs</div>
+        <Card className="bg-gradient-to-r from-green-100 to-green-50 border-0 shadow-md">
+          <CardContent className="p-8 flex flex-col items-center">
+            <div className="flex items-center mb-2">
+              <span className="text-4xl mr-2">🛡️</span>
+              <span className="text-4xl font-bold text-green-700">0</span>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-purple-600">100%</div>
-              <div className="text-sm text-gray-600">Privacy Protected</div>
-            </div>
+            <div className="text-lg text-green-900 font-medium">Generated Proofs</div>
           </CardContent>
         </Card>
       </div>
 
       {/* Credentials Grid */}
-      <div>
-        <h2 className="text-2xl font-semibold text-gray-900 mb-6">
-          Your Verifiable Credentials
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="max-w-6xl mx-auto">
+        <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center tracking-tight">Your Verifiable Credentials</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
           {sampleCredentials.map((credential) => (
-            <Card key={credential.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
+            <Card key={credential.id} className="group relative overflow-hidden rounded-2xl border-0 shadow-lg bg-white hover:scale-[1.03] hover:shadow-2xl transition-all duration-300">
+              <div className="absolute right-4 top-4 opacity-10 text-6xl pointer-events-none select-none">🎓</div>
+              <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">{credential.type}</CardTitle>
-                  <Badge className={credential.color}>
+                  <CardTitle className="text-xl font-bold text-gray-800 group-hover:text-blue-700 transition-colors">{credential.type}</CardTitle>
+                  <Badge className={credential.color + ' text-base px-3 py-1 rounded-full shadow-sm font-semibold'}>
                     {credential.value}
                   </Badge>
                 </div>
-                <CardDescription>{credential.description}</CardDescription>
+                <CardDescription className="text-gray-500 mt-2">{credential.description}</CardDescription>
               </CardHeader>
               <CardContent>
                 <Button 
                   onClick={() => handleGenerateZKP(credential.id)}
                   disabled={generatingZKP === credential.id}
-                  className="w-full"
+                  className="w-full py-2 text-lg font-semibold bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-md"
                 >
                   {generatingZKP === credential.id ? (
                     <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
                       Generating ZKP...
                     </>
                   ) : (
-                    "Generate ZKP"
+                    <>
+                      <span className="mr-2">🔒</span> Generate ZKP
+                    </>
                   )}
                 </Button>
               </CardContent>
@@ -146,26 +150,24 @@ export default function HomePage() {
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-white rounded-lg p-6 shadow-sm border">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-        <div className="flex flex-wrap gap-4">
-          <Button onClick={() => router.push('/scholarship')}>
-            Apply for Scholarships
+      <div className="max-w-4xl mx-auto mt-16 bg-white/90 rounded-2xl p-8 shadow-xl border border-blue-100 flex flex-col items-center">
+        <h3 className="text-2xl font-bold text-blue-900 mb-6">Quick Actions</h3>
+        <div className="flex flex-wrap justify-center gap-6 w-full">
+          <Button size="lg" className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-3 font-semibold shadow-md hover:from-purple-700 hover:to-blue-700" onClick={() => router.push('/wallet')}>
+            <span className="mr-2">👛</span> View SSI Wallet
           </Button>
-          <Button variant="outline" onClick={() => router.push('/wallet')}>
-            View SSI Wallet
+          <Button size="lg" variant="outline" className="border-blue-700 text-blue-700 hover:bg-blue-50 px-8 py-3 font-semibold" onClick={() => router.push('/zkp-generator')}>
+            <span className="mr-2">🔒</span> Generate New Proof
           </Button>
-          <Button variant="outline" onClick={() => router.push('/zkp-generator')}>
-            Generate New Proof
+          <Button size="lg" variant="outline" className="border-green-700 text-green-700 hover:bg-green-50 px-8 py-3 font-semibold" onClick={() => router.push('/verifier')}>
+            <span className="mr-2">✅</span> Verify Proof
           </Button>
-          <Button variant="outline" onClick={() => router.push('/verifier')}>
-            Verify Proof
-          </Button>
-          <Button variant="outline" onClick={() => router.push('/chat')}>
-            Ask AI Assistant
+          <Button size="lg" variant="outline" className="border-gray-700 text-gray-700 hover:bg-gray-50 px-8 py-3 font-semibold" onClick={() => router.push('/chat')}>
+            <span className="mr-2">🤖</span> Ask AI Assistant
           </Button>
         </div>
       </div>
     </div>
   );
 }
+

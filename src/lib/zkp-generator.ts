@@ -34,60 +34,42 @@ export interface CredentialGroup {
   id: string;
   name: string;
   members: string[];
-  merkleTree: any;
+  merkleTree: GroupData;
+}
+
+interface GroupData {
+  id: string;
+  members: string[];
+  root: string;
+  addMember: (member: string) => void;
 }
 
 class ZKPGenerator {
   private merkleTreeDepth = 20;
-  private groups: Map<string, any> = new Map();
-  private poseidon: any = null;
-  private semaphoreAvailable = false;
+  private groups: Map<string, GroupData> = new Map();
 
   constructor() {
-    this.initializeSemaphore();
-  }
-
-  private async initializeSemaphore() {
-    try {
-      // Try to import Semaphore modules
-      const { Group } = await import('@semaphore-protocol/group');
-      const { generateProof, verifyProof } = await import('@semaphore-protocol/proof');
-      const { buildPoseidon } = await import('circomlibjs');
-      
-      this.poseidon = await buildPoseidon();
-      this.semaphoreAvailable = true;
-      
-      console.log('Semaphore protocol initialized successfully');
-    } catch (error) {
-      console.warn('Semaphore protocol not available, using fallback implementation:', error);
-      this.semaphoreAvailable = false;
-    }
+    console.log('ZKP Generator initialized with simplified implementation');
   }
 
   /**
    * Create or get a credential group for a specific claim type
    */
-  private async getOrCreateGroup(claimType: string): Promise<any> {
+  private async getOrCreateGroup(claimType: string): Promise<GroupData> {
     const groupId = ethers.keccak256(ethers.toUtf8Bytes(claimType));
     
     if (!this.groups.has(groupId)) {
-      if (this.semaphoreAvailable) {
-        const { Group } = await import('@semaphore-protocol/group');
-        const group = new Group(groupId, this.merkleTreeDepth);
-        this.groups.set(groupId, group);
-      } else {
-        // Fallback group implementation
-        const group = {
-          id: groupId,
-          members: [],
-          root: ethers.ZeroHash,
-          addMember: (member: any) => {
-            group.members.push(member);
-            group.root = ethers.keccak256(ethers.toUtf8Bytes(member.toString()));
-          }
-        };
-        this.groups.set(groupId, group);
-      }
+      // Simplified group implementation
+      const group: GroupData = {
+        id: groupId,
+        members: [],
+        root: ethers.ZeroHash,
+        addMember: (member: string) => {
+          group.members.push(member);
+          group.root = ethers.keccak256(ethers.toUtf8Bytes(member.toString()));
+        }
+      };
+      this.groups.set(groupId, group);
     }
     
     return this.groups.get(groupId)!;
@@ -96,15 +78,10 @@ class ZKPGenerator {
   /**
    * Add a member to a credential group
    */
-  private async addMemberToGroup(group: any, memberId: string) {
-    if (this.semaphoreAvailable && this.poseidon) {
-      const memberHash = this.poseidon([BigInt(memberId)]);
-      group.addMember(memberHash);
-    } else {
-      // Fallback: use simple hash
-      const memberHash = ethers.keccak256(ethers.toUtf8Bytes(memberId));
-      group.addMember(memberHash);
-    }
+  private async addMemberToGroup(group: GroupData, memberId: string) {
+    // Simplified: use simple hash
+    const memberHash = ethers.keccak256(ethers.toUtf8Bytes(memberId));
+    group.addMember(memberHash);
   }
 
   /**
@@ -132,8 +109,8 @@ class ZKPGenerator {
       // Step 4: Generate nullifier
       const nullifier = this.generateNullifier(input);
 
-      // Step 5: Generate ZKP using Semaphore or fallback
-      const proof = await this.generateZKProof(input, group, nullifier);
+      // Step 5: Generate simplified ZKP
+      const proof = await this.generateSimplifiedProof(input, group, nullifier);
 
       return {
         proof,
@@ -151,127 +128,69 @@ class ZKPGenerator {
   }
 
   /**
-   * Generate ZKP proof using Semaphore or fallback
+   * Generate simplified ZKP proof
    */
-  private async generateZKProof(
+  private async generateSimplifiedProof(
     input: ZKPInput,
-    group: any,
+    group: GroupData,
     nullifier: string
   ): Promise<ZKPProof> {
-    if (this.semaphoreAvailable && this.poseidon) {
-      return this.generateSemaphoreProof(input, group, nullifier);
-    } else {
-      return this.generateFallbackProof(input, group, nullifier);
-    }
-  }
-
-  /**
-   * Generate Semaphore-based ZKP proof
-   */
-  private async generateSemaphoreProof(
-    input: ZKPInput,
-    group: any,
-    nullifier: string
-  ): Promise<ZKPProof> {
-    const { generateProof } = await import('@semaphore-protocol/proof');
-    
-    // Create identity commitment
-    const identityCommitment = this.poseidon([
-      BigInt(input.studentAddress),
-      BigInt(input.credentialId)
-    ]);
-
-    // Create signal (the claim being proven)
+    // Create a simplified proof structure
     const signal = this.createSignal(input);
+    
+    // Generate mock proof values (in a real implementation, these would be computed)
+    const proof = {
+      a: [
+        ethers.keccak256(ethers.toUtf8Bytes(input.studentAddress + "1")),
+        ethers.keccak256(ethers.toUtf8Bytes(input.studentAddress + "2"))
+      ] as [string, string],
+      b: [
+        [
+          ethers.keccak256(ethers.toUtf8Bytes(input.credentialId + "1")),
+          ethers.keccak256(ethers.toUtf8Bytes(input.credentialId + "2"))
+        ],
+        [
+          ethers.keccak256(ethers.toUtf8Bytes(input.claimType + "1")),
+          ethers.keccak256(ethers.toUtf8Bytes(input.claimType + "2"))
+        ]
+      ] as [[string, string], [string, string]],
+      c: [
+        ethers.keccak256(ethers.toUtf8Bytes(nullifier + "1")),
+        ethers.keccak256(ethers.toUtf8Bytes(nullifier + "2"))
+      ] as [string, string]
+    };
 
-    // Generate the actual ZKP using Semaphore
-    const { proof, publicSignals } = await generateProof(
-      group,
-      identityCommitment,
-      signal,
+    const publicSignals = [
       group.root,
-      this.poseidon
-    );
+      nullifier,
+      signal.toString(),
+      input.studentAddress,
+      input.issuerAddress
+    ];
 
     return {
       claimType: input.claimType,
       studentAddress: input.studentAddress,
       issuerAddress: input.issuerAddress,
-      proof: {
-        a: [proof.a[0].toString(), proof.a[1].toString()],
-        b: [
-          [proof.b[0][0].toString(), proof.b[0][1].toString()],
-          [proof.b[1][0].toString(), proof.b[1][1].toString()]
-        ],
-        c: [proof.c[0].toString(), proof.c[1].toString()]
-      },
-      publicSignals: publicSignals.map(signal => signal.toString()),
+      proof,
+      publicSignals,
       merkleTreeDepth: this.merkleTreeDepth,
       nullifier,
-      timestamp: Math.floor(Date.now() / 1000),
+      timestamp: Date.now(),
       groupId: group.id
     };
   }
 
   /**
-   * Generate fallback ZKP proof (for when Semaphore is not available)
-   */
-  private async generateFallbackProof(
-    input: ZKPInput,
-    group: any,
-    nullifier: string
-  ): Promise<ZKPProof> {
-    // Simulate ZKP generation process
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Generate mock proof components that look like real ZKP
-    const proof: ZKPProof = {
-      claimType: input.claimType,
-      studentAddress: input.studentAddress,
-      issuerAddress: input.issuerAddress,
-      proof: {
-        a: [
-          ethers.keccak256(ethers.toUtf8Bytes(`a-${input.credentialId}-${Date.now()}`)),
-          ethers.keccak256(ethers.toUtf8Bytes(`a-${input.credentialId}-${Date.now() + 1}`))
-        ],
-        b: [
-          [
-            ethers.keccak256(ethers.toUtf8Bytes(`b-${input.credentialId}-0-0`)),
-            ethers.keccak256(ethers.toUtf8Bytes(`b-${input.credentialId}-0-1`))
-          ],
-          [
-            ethers.keccak256(ethers.toUtf8Bytes(`b-${input.credentialId}-1-0`)),
-            ethers.keccak256(ethers.toUtf8Bytes(`b-${input.credentialId}-1-1`))
-          ]
-        ],
-        c: [
-          ethers.keccak256(ethers.toUtf8Bytes(`c-${input.credentialId}-0`)),
-          ethers.keccak256(ethers.toUtf8Bytes(`c-${input.credentialId}-1`))
-        ]
-      },
-      publicSignals: [
-        ethers.keccak256(ethers.toUtf8Bytes(input.claimType)),
-        ethers.keccak256(ethers.toUtf8Bytes(input.studentAddress)),
-        ethers.keccak256(ethers.toUtf8Bytes(input.issuerAddress)),
-        nullifier
-      ],
-      merkleTreeDepth: this.merkleTreeDepth,
-      nullifier,
-      timestamp: Math.floor(Date.now() / 1000),
-      groupId: group.id
-    };
-
-    return proof;
-  }
-
-  /**
-   * Create a signal from credential data
+   * Create a signal from the input data
    */
   private createSignal(input: ZKPInput): bigint {
     const signalData = {
       claimType: input.claimType,
-      credentialData: input.credentialData,
-      timestamp: Date.now()
+      credentialId: input.credentialId,
+      studentAddress: input.studentAddress,
+      issuerAddress: input.issuerAddress,
+      ...input.credentialData
     };
     
     const signalString = JSON.stringify(signalData);
@@ -282,46 +201,46 @@ class ZKPGenerator {
    * Hash student ID for group membership
    */
   private hashStudentId(studentAddress: string, credentialId: string): string {
-    return ethers.keccak256(ethers.toUtf8Bytes(`${studentAddress}-${credentialId}`));
+    return ethers.keccak256(ethers.toUtf8Bytes(studentAddress + credentialId));
   }
 
   /**
-   * Validate ZKP input parameters
+   * Validate input parameters
    */
   private validateInput(input: ZKPInput): { isValid: boolean; errorMessage?: string } {
     if (!input.credentialId || input.credentialId.trim() === '') {
       return { isValid: false, errorMessage: 'Credential ID is required' };
     }
-
+    
     if (!input.claimType || input.claimType.trim() === '') {
       return { isValid: false, errorMessage: 'Claim type is required' };
     }
-
-    if (!ethers.isAddress(input.studentAddress)) {
-      return { isValid: false, errorMessage: 'Invalid student address' };
+    
+    if (!input.studentAddress || !ethers.isAddress(input.studentAddress)) {
+      return { isValid: false, errorMessage: 'Valid student address is required' };
     }
-
-    if (!ethers.isAddress(input.issuerAddress)) {
-      return { isValid: false, errorMessage: 'Invalid issuer address' };
+    
+    if (!input.issuerAddress || !ethers.isAddress(input.issuerAddress)) {
+      return { isValid: false, errorMessage: 'Valid issuer address is required' };
     }
-
+    
     if (!input.credentialData || Object.keys(input.credentialData).length === 0) {
       return { isValid: false, errorMessage: 'Credential data is required' };
     }
-
+    
     return { isValid: true };
   }
 
   /**
-   * Generate a unique nullifier to prevent double-spending
+   * Generate nullifier for the proof
    */
   private generateNullifier(input: ZKPInput): string {
-    const nullifierData = `${input.credentialId}-${input.claimType}-${input.studentAddress}-${Date.now()}`;
+    const nullifierData = input.studentAddress + input.credentialId + input.claimType;
     return ethers.keccak256(ethers.toUtf8Bytes(nullifierData));
   }
 
   /**
-   * Create empty proof for error cases
+   * Create an empty proof structure
    */
   private createEmptyProof(input: ZKPInput): ZKPProof {
     return {
@@ -333,24 +252,30 @@ class ZKPGenerator {
         b: [[ethers.ZeroHash, ethers.ZeroHash], [ethers.ZeroHash, ethers.ZeroHash]],
         c: [ethers.ZeroHash, ethers.ZeroHash]
       },
-      publicSignals: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
+      publicSignals: [],
       merkleTreeDepth: this.merkleTreeDepth,
       nullifier: ethers.ZeroHash,
-      timestamp: Math.floor(Date.now() / 1000),
+      timestamp: Date.now(),
       groupId: ethers.ZeroHash
     };
   }
 
   /**
-   * Verify a ZKP proof using Semaphore or fallback
+   * Verify a ZKP proof
    */
   async verifyProof(proof: ZKPProof): Promise<boolean> {
     try {
-      if (this.semaphoreAvailable && this.poseidon) {
-        return this.verifySemaphoreProof(proof);
-      } else {
-        return this.verifyFallbackProof(proof);
+      // Simplified verification - just check basic structure
+      if (!proof.proof || !proof.publicSignals || proof.publicSignals.length === 0) {
+        return false;
       }
+      
+      // Check that proof values are not zero hashes
+      const hasValidProof = proof.proof.a.some(hash => hash !== ethers.ZeroHash) &&
+                           proof.proof.b.some(row => row.some(hash => hash !== ethers.ZeroHash)) &&
+                           proof.proof.c.some(hash => hash !== ethers.ZeroHash);
+      
+      return hasValidProof;
     } catch (error) {
       console.error('Proof verification failed:', error);
       return false;
@@ -358,59 +283,7 @@ class ZKPGenerator {
   }
 
   /**
-   * Verify using Semaphore
-   */
-  private async verifySemaphoreProof(proof: ZKPProof): Promise<boolean> {
-    const { verifyProof } = await import('@semaphore-protocol/proof');
-    
-    // Convert proof back to Semaphore format
-    const semaphoreProof = {
-      a: [BigInt(proof.proof.a[0]), BigInt(proof.proof.a[1])],
-      b: [
-        [BigInt(proof.proof.b[0][0]), BigInt(proof.proof.b[0][1])],
-        [BigInt(proof.proof.b[1][0]), BigInt(proof.proof.b[1][1])]
-      ],
-      c: [BigInt(proof.proof.c[0]), BigInt(proof.proof.c[1])]
-    };
-
-    const publicSignals = proof.publicSignals.map(signal => BigInt(signal));
-
-    // Verify using Semaphore
-    const isValid = await verifyProof(
-      semaphoreProof,
-      publicSignals,
-      this.poseidon
-    );
-
-    return isValid;
-  }
-
-  /**
-   * Verify using fallback method
-   */
-  private async verifyFallbackProof(proof: ZKPProof): Promise<boolean> {
-    // Basic validation for fallback
-    if (!proof.claimType || !proof.studentAddress || !proof.issuerAddress) {
-      return false;
-    }
-
-    if (proof.nullifier === ethers.ZeroHash) {
-      return false;
-    }
-
-    if (proof.proof.a[0] === ethers.ZeroHash || proof.proof.a[1] === ethers.ZeroHash) {
-      return false;
-    }
-
-    // Simulate verification process
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // For demo purposes, return true if all basic checks pass
-    return true;
-  }
-
-  /**
-   * Generate income threshold proof
+   * Generate income proof
    */
   async generateIncomeProof(
     studentAddress: string,
@@ -418,45 +291,45 @@ class ZKPGenerator {
     income: number,
     threshold: number
   ): Promise<ZKPResult> {
-    const credentialId = `income-${Date.now()}`;
-    
-    return this.generateProof({
-      credentialId,
-      claimType: `Income < ${threshold}`,
+    const input: ZKPInput = {
+      credentialId: ethers.keccak256(ethers.toUtf8Bytes(`income_${studentAddress}_${Date.now()}`)),
+      claimType: 'income',
       studentAddress,
       issuerAddress,
       credentialData: {
         income,
         threshold,
-        isEligible: income < threshold
+        isEligible: income <= threshold ? 1 : 0
       }
-    });
+    };
+    
+    return this.generateProof(input);
   }
 
   /**
-   * Generate caste verification proof
+   * Generate caste proof
    */
   async generateCasteProof(
     studentAddress: string,
     issuerAddress: string,
     caste: string
   ): Promise<ZKPResult> {
-    const credentialId = `caste-${Date.now()}`;
-    
-    return this.generateProof({
-      credentialId,
-      claimType: 'Caste Verification',
+    const input: ZKPInput = {
+      credentialId: ethers.keccak256(ethers.toUtf8Bytes(`caste_${studentAddress}_${Date.now()}`)),
+      claimType: 'caste',
       studentAddress,
       issuerAddress,
       credentialData: {
         caste,
-        verified: true
+        isReserved: ['SC', 'ST', 'OBC'].includes(caste.toUpperCase()) ? 1 : 0
       }
-    });
+    };
+    
+    return this.generateProof(input);
   }
 
   /**
-   * Generate academic marks proof
+   * Generate marks proof
    */
   async generateMarksProof(
     studentAddress: string,
@@ -464,19 +337,19 @@ class ZKPGenerator {
     marks: number,
     threshold: number
   ): Promise<ZKPResult> {
-    const credentialId = `marks-${Date.now()}`;
-    
-    return this.generateProof({
-      credentialId,
-      claimType: `Marks > ${threshold}%`,
+    const input: ZKPInput = {
+      credentialId: ethers.keccak256(ethers.toUtf8Bytes(`marks_${studentAddress}_${Date.now()}`)),
+      claimType: 'marks',
       studentAddress,
       issuerAddress,
       credentialData: {
         marks,
         threshold,
-        isEligible: marks > threshold
+        isEligible: marks >= threshold ? 1 : 0
       }
-    });
+    };
+    
+    return this.generateProof(input);
   }
 
   /**
@@ -484,25 +357,25 @@ class ZKPGenerator {
    */
   formatProofForBlockchain(proof: ZKPProof) {
     return {
-      a: proof.proof.a,
-      b: proof.proof.b,
-      c: proof.proof.c,
-      input: proof.publicSignals,
-      merkleTreeDepth: proof.merkleTreeDepth,
+      proof: proof.proof,
+      publicSignals: proof.publicSignals,
+      claimType: proof.claimType,
+      studentAddress: proof.studentAddress,
+      issuerAddress: proof.issuerAddress,
       nullifier: proof.nullifier,
-      groupId: proof.groupId
+      timestamp: proof.timestamp
     };
   }
 
   /**
-   * Export proof as JSON
+   * Export proof as JSON string
    */
   exportProof(proof: ZKPProof): string {
     return JSON.stringify(proof, null, 2);
   }
 
   /**
-   * Import proof from JSON
+   * Import proof from JSON string
    */
   importProof(proofJson: string): ZKPProof | null {
     try {
@@ -519,11 +392,11 @@ class ZKPGenerator {
   getCredentialGroups(): CredentialGroup[] {
     const groups: CredentialGroup[] = [];
     
-    this.groups.forEach((group, groupId) => {
+    this.groups.forEach((group, id) => {
       groups.push({
-        id: groupId,
-        name: `Group for ${groupId.slice(0, 10)}...`,
-        members: group.members.map((member: any) => member.toString()),
+        id,
+        name: `Group ${id.slice(0, 8)}`,
+        members: group.members,
         merkleTree: group
       });
     });
@@ -532,12 +405,13 @@ class ZKPGenerator {
   }
 
   /**
-   * Check if Semaphore is available
+   * Check if advanced ZKP features are available
    */
-  isSemaphoreAvailable(): boolean {
-    return this.semaphoreAvailable;
+  isAdvancedAvailable(): boolean {
+    return false; // Simplified implementation
   }
 }
 
 // Export singleton instance
-export const zkpGenerator = new ZKPGenerator(); 
+export const zkpGenerator = new ZKPGenerator();
+export default zkpGenerator; 
