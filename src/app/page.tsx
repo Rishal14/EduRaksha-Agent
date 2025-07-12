@@ -149,7 +149,10 @@ export default function HomePage() {
       <div className="bg-white rounded-lg p-6 shadow-sm border">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
         <div className="flex flex-wrap gap-4">
-          <Button onClick={() => router.push('/wallet')}>
+          <Button onClick={() => router.push('/scholarship')}>
+            Apply for Scholarships
+          </Button>
+          <Button variant="outline" onClick={() => router.push('/wallet')}>
             View SSI Wallet
           </Button>
           <Button variant="outline" onClick={() => router.push('/zkp-generator')}>

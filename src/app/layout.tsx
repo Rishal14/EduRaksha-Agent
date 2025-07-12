@@ -57,8 +57,17 @@ export default function RootLayout({
                   <Link href="/didkit-demo">
                     <Button variant="ghost">DIDKit Demo</Button>
                   </Link>
+                  <Link href="/scholarship">
+                    <Button variant="ghost">Scholarships</Button>
+                  </Link>
+                  <Link href="/scholarship/dashboard">
+                    <Button variant="ghost">My Applications</Button>
+                  </Link>
                   <Link href="/chat">
                     <Button variant="ghost">AI Assistant</Button>
+                  </Link>
+                  <Link href="/ai-test">
+                    <Button variant="ghost">AI Test</Button>
                   </Link>
                 </div>
               </div>

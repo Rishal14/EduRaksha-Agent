@@ -1,31 +1,36 @@
-import { ChatOpenAI } from "@langchain/openai";
+import { ChatOllama } from "@langchain/ollama";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { ollamaManager } from "./ollama-config";
 
 export interface AIResponse {
   answer: string;
   confidence: number;
   suggestedActions: string[];
   relatedCredentials: string[];
+  modelUsed?: string;
+  isFallback?: boolean;
 }
 
 export interface StudentContext {
-  credentials: any[];
+  credentials: Array<{
+    type: string;
+    id: string;
+    claims: Record<string, unknown>;
+  }>;
   eligibilityQueries: string[];
-  verificationHistory: any[];
+  verificationHistory: Array<{
+    type: string;
+    timestamp: string;
+    status: string;
+  }>;
 }
 
 class EduRakshaAI {
-  private model: ChatOpenAI;
+  private model: ChatOllama | null = null;
   private systemPrompt: string;
+  private isInitialized = false;
 
   constructor() {
-    // Initialize with mock model for now (can be replaced with actual Ollama/OpenAI)
-    this.model = new ChatOpenAI({
-      modelName: "gpt-3.5-turbo",
-      temperature: 0.7,
-      openAIApiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY || "mock-key"
-    });
-
     this.systemPrompt = `You are EduRaksha AI Assistant, a helpful guide for students using a privacy-preserving verification system.
 
 Your role is to:
@@ -56,20 +61,83 @@ Common queries you can help with:
 Always prioritize privacy and guide students to use ZKPs rather than sharing raw data.`;
   }
 
-  async query(question: string, context?: StudentContext): Promise<AIResponse> {
-    try {
-      const messages = [
-        new SystemMessage(this.systemPrompt),
-        new HumanMessage(this.generateContextualQuestion(question, context))
-      ];
+  async initialize(): Promise<boolean> {
+    if (this.isInitialized) return true;
 
-      const response = await this.model.invoke(messages);
+    try {
+      // Check if Ollama is available
+      const isConnected = await ollamaManager.checkConnection();
+      if (!isConnected) {
+        console.warn("Ollama not available, will use fallback responses");
+        this.isInitialized = true;
+        return false;
+      }
+
+      // Get available models
+      const availableModels = await ollamaManager.getAvailableModels();
+      const config = ollamaManager.getConfig();
       
-      return this.parseResponse(response.content as string);
+      // Check if the configured model is available
+      if (!availableModels.includes(config.model)) {
+        console.warn(`Model ${config.model} not available, trying to pull...`);
+        const pulled = await ollamaManager.pullModel(config.model);
+        if (!pulled) {
+          console.warn(`Failed to pull ${config.model}, using fallback`);
+          this.isInitialized = true;
+          return false;
+        }
+      }
+
+      // Initialize the model
+      this.model = new ChatOllama({
+        model: config.model,
+        baseUrl: config.baseUrl,
+        temperature: config.temperature,
+      });
+
+      this.isInitialized = true;
+      console.log(`AI Assistant initialized with model: ${config.model}`);
+      return true;
     } catch (error) {
-      console.error("AI Assistant error:", error);
-      return this.getFallbackResponse(question);
+      console.error("Failed to initialize AI Assistant:", error);
+      this.isInitialized = true;
+      return false;
     }
+  }
+
+  async query(question: string, context?: StudentContext): Promise<AIResponse> {
+    // Ensure initialization
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    // Try to use Llama if available
+    if (this.model) {
+      try {
+        const messages = [
+          new SystemMessage(this.systemPrompt),
+          new HumanMessage(this.generateContextualQuestion(question, context))
+        ];
+
+        const response = await this.model.invoke(messages);
+        const config = ollamaManager.getConfig();
+        
+        return {
+          ...this.parseResponse(response.content as string),
+          modelUsed: config.model,
+          isFallback: false
+        };
+      } catch (error) {
+        console.error("Llama query failed, falling back to mock response:", error);
+      }
+    }
+
+    // Fallback to mock response
+    return {
+      ...this.mockQuery(question),
+      modelUsed: "fallback",
+      isFallback: true
+    };
   }
 
   private generateContextualQuestion(question: string, context?: StudentContext): string {

@@ -7,6 +7,19 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  Wallet, 
+  Shield, 
+  Download, 
+  Upload, 
+  Plus, 
+  CheckCircle, 
+  GraduationCap,
+  DollarSign,
+  Award
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 interface VerifiableCredential {
   id: string;
@@ -98,15 +111,37 @@ const sampleVCs: VerifiableCredential[] = [
 ];
 
 export default function WalletPage() {
+  const router = useRouter();
   const [credentials, setCredentials] = useState<VerifiableCredential[]>(sampleVCs);
   const [selectedVC, setSelectedVC] = useState<VerifiableCredential | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedTab, setSelectedTab] = useState("all");
   const [newVC, setNewVC] = useState({
     type: "",
     issuer: "",
     claims: "",
     expiryDate: ""
   });
+
+  // Filter credentials based on selected tab
+  const filteredCredentials = credentials.filter(vc => {
+    if (selectedTab === "all") return true;
+    if (selectedTab === "active") return vc.status === 'active';
+    if (selectedTab === "expired") return vc.status === 'expired';
+    if (selectedTab === "revoked") return vc.status === 'revoked';
+    return vc.type.toLowerCase().includes(selectedTab.toLowerCase());
+  });
+
+  // Get wallet statistics
+  const walletStats = {
+    total: credentials.length,
+    active: credentials.filter(vc => vc.status === 'active').length,
+    expired: credentials.filter(vc => vc.status === 'expired').length,
+    revoked: credentials.filter(vc => vc.status === 'revoked').length,
+    educational: credentials.filter(vc => vc.type === 'EducationalCredential').length,
+    income: credentials.filter(vc => vc.type === 'IncomeCredential').length,
+    caste: credentials.filter(vc => vc.type === 'CasteCredential').length
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -155,6 +190,57 @@ export default function WalletPage() {
     setCredentials(credentials.map(vc => 
       vc.id === vcId ? { ...vc, status: 'revoked' as const } : vc
     ));
+    toast.success("Credential revoked successfully");
+  };
+
+  const handleUseForScholarship = (vc: VerifiableCredential) => {
+    // Store selected credential for scholarship application
+    localStorage.setItem('selectedCredential', JSON.stringify(vc));
+    router.push('/scholarship');
+    toast.success("Credential selected for scholarship application");
+  };
+
+  const handleExportWallet = () => {
+    const walletData = {
+      version: "1.0",
+      timestamp: new Date().toISOString(),
+      credentials: credentials,
+      metadata: {
+        totalCredentials: credentials.length,
+        activeCredentials: walletStats.active
+      }
+    };
+    
+    const blob = new Blob([JSON.stringify(walletData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ssi-wallet-backup-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    toast.success("Wallet exported successfully");
+  };
+
+  const handleImportWallet = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const walletData = JSON.parse(e.target?.result as string);
+        if (walletData.credentials) {
+          setCredentials(walletData.credentials);
+          toast.success("Wallet imported successfully");
+        }
+      } catch (error) {
+        toast.error("Invalid wallet file");
+      }
+    };
+    reader.readAsText(file);
   };
 
   return (
@@ -174,43 +260,89 @@ export default function WalletPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card>
           <CardContent className="p-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-blue-600">{credentials.length}</div>
-              <div className="text-sm text-gray-600">Total Credentials</div>
+            <div className="flex items-center space-x-2">
+              <Wallet className="w-5 h-5 text-blue-600" />
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{walletStats.total}</div>
+                <div className="text-sm text-gray-600">Total Credentials</div>
+              </div>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-green-600">
-                {credentials.filter(vc => vc.status === 'active').length}
+            <div className="flex items-center space-x-2">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{walletStats.active}</div>
+                <div className="text-sm text-gray-600">Active Credentials</div>
               </div>
-              <div className="text-sm text-gray-600">Active Credentials</div>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-purple-600">
-                {credentials.filter(vc => vc.type === 'EducationalCredential').length}
+            <div className="flex items-center space-x-2">
+              <GraduationCap className="w-5 h-5 text-purple-600" />
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{walletStats.educational}</div>
+                <div className="text-sm text-gray-600">Educational VCs</div>
               </div>
-              <div className="text-sm text-gray-600">Educational VCs</div>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-orange-600">
-                {credentials.filter(vc => vc.status === 'expired').length}
+            <div className="flex items-center space-x-2">
+              <DollarSign className="w-5 h-5 text-orange-600" />
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{walletStats.income}</div>
+                <div className="text-sm text-gray-600">Income VCs</div>
               </div>
-              <div className="text-sm text-gray-600">Expired Credentials</div>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Quick Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Shield className="w-5 h-5" />
+            <span>Wallet Actions</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-4">
+            <Button onClick={() => setShowAddForm(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Credential
+            </Button>
+            <Button variant="outline" onClick={handleExportWallet}>
+              <Download className="w-4 h-4 mr-2" />
+              Export Wallet
+            </Button>
+            <label className="cursor-pointer">
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImportWallet}
+                className="hidden"
+              />
+              <Button variant="outline" asChild>
+                <span>
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import Wallet
+                </span>
+              </Button>
+            </label>
+            <Button variant="outline" onClick={() => router.push('/scholarship')}>
+              <Award className="w-4 h-4 mr-2" />
+              Apply for Scholarships
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Credentials List */}
@@ -331,10 +463,23 @@ export default function WalletPage() {
                     ))}
                   </div>
                   {vc.status === 'active' && (
-                    <div className="mt-4 pt-4 border-t">
+                    <div className="mt-4 pt-4 border-t space-y-2">
                       <Button 
                         variant="outline" 
                         size="sm"
+                        className="w-full"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleUseForScholarship(vc);
+                        }}
+                      >
+                        <Award className="w-4 h-4 mr-2" />
+                        Use for Scholarship
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="w-full"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRevokeVC(vc.id);

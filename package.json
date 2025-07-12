@@ -10,8 +10,11 @@
   },
   "dependencies": {
     "@langchain/core": "^0.3.62",
+    "@langchain/ollama": "^0.2.3",
     "@langchain/openai": "^0.5.18",
+    "@radix-ui/react-progress": "^1.1.7",
     "@radix-ui/react-select": "^2.2.5",
+    "@radix-ui/react-separator": "^1.1.7",
     "@radix-ui/react-slot": "^1.2.3",
     "@spruceid/didkit-wasm": "^0.2.1",
     "class-variance-authority": "^0.7.1",
