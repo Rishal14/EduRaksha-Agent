@@ -54,7 +54,7 @@ class SSIWallet {
     
     // Initialize with demo wallet info
     this.walletInfo = {
-      address: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6",
+      address: "0x1234567890123456789012345678901234567890",
       name: "Student Wallet",
       email: "student@example.com",
       phone: "+91 98765 43210",
@@ -67,7 +67,7 @@ class SSIWallet {
    * Generate a secure encryption key for wallet data
    */
   private generateEncryptionKey(): string {
-    return ethers.randomBytes(32).toString('hex');
+    return ethers.Wallet.createRandom().privateKey;
   }
 
   /**
@@ -421,12 +421,12 @@ export const initializeDemoCredentials = async () => {
     {
       type: "CasteCertificate",
       issuer: {
-        id: "did:ethr:0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6",
+        id: "did:ethr:0x9876543210987654321098765432109876543210",
         name: "Karnataka Government",
         ensDomain: "karnataka.gov.eth"
       },
       subject: {
-        id: "did:ethr:0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6",
+        id: "did:ethr:0x1234567890123456789012345678901234567890",
         name: "Rishal D"
       },
       issuanceDate: "2024-01-15T10:30:00.000Z",
@@ -441,12 +441,12 @@ export const initializeDemoCredentials = async () => {
     {
       type: "IncomeCertificate",
       issuer: {
-        id: "did:ethr:0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6",
+        id: "did:ethr:0x9876543210987654321098765432109876543210",
         name: "Karnataka Government",
         ensDomain: "karnataka.gov.eth"
       },
       subject: {
-        id: "did:ethr:0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6",
+        id: "did:ethr:0x1234567890123456789012345678901234567890",
         name: "Rishal D"
       },
       issuanceDate: "2024-01-10T14:20:00.000Z",
@@ -466,7 +466,7 @@ export const initializeDemoCredentials = async () => {
         ensDomain: "bangalore.university.eth"
       },
       subject: {
-        id: "did:ethr:0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6",
+        id: "did:ethr:0x1234567890123456789012345678901234567890",
         name: "Rishal D"
       },
       issuanceDate: "2024-01-20T09:15:00.000Z",

@@ -733,7 +733,7 @@ export default function ScholarshipPage() {
                   <div className="flex items-start space-x-2">
                     <EyeOff className="w-4 h-4 text-blue-600 mt-0.5" />
                     <div>
-                      <p className="text-sm font-medium text-blue-900">Privacy Protected</p>
+                      {/* <p className="text-sm font-medium text-blue-900">Privacy Protected</p> */}
                       <p className="text-xs text-blue-700">
                         Your personal data remains private. Only proof of eligibility is shared.
                       </p>

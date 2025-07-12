@@ -36,12 +36,6 @@ export default function RootLayout({
                   <Link href="/">
                     <Button variant="ghost">Dashboard</Button>
                   </Link>
-                  <Link href="/authority">
-                    <Button variant="ghost">Authority</Button>
-                  </Link>
-                  <Link href="/issuer">
-                    <Button variant="ghost">Issuer</Button>
-                  </Link>
                   <Link href="/verify">
                     <Button variant="ghost">Verify</Button>
                   </Link>

@@ -9,8 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSearchParams } from "next/navigation";
 import { zkpGenerator, type ZKPResult } from "@/lib/zkp-generator";
+import { blockchainService, type BlockchainConfig } from "@/lib/blockchain-service";
 import { ethers } from "ethers";
-import { Copy, Download, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Copy, Download, CheckCircle, XCircle, Loader2, Link, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
 interface Claim {
@@ -67,6 +68,16 @@ export default function ZKPGeneratorPage() {
   const [studentAddress, setStudentAddress] = useState<string>("");
   const [issuerAddress, setIssuerAddress] = useState<string>("");
   const [customValue, setCustomValue] = useState<string>("");
+  
+  // Blockchain state
+  const [isBlockchainConnected, setIsBlockchainConnected] = useState(false);
+  const [blockchainConfig, setBlockchainConfig] = useState<BlockchainConfig>({
+    rpcUrl: "http://localhost:8545", // Default to local Hardhat
+    verifierAddress: "0x0000000000000000000000000000000000000000",
+    chainId: 31337
+  });
+  const [isVerifyingOnChain, setIsVerifyingOnChain] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<any>(null);
 
   useEffect(() => {
     const credential = searchParams.get('credential');
@@ -193,11 +204,117 @@ export default function ZKPGeneratorPage() {
     toast.success("Proof downloaded!");
   };
 
+  const connectBlockchain = async () => {
+    try {
+      await blockchainService.initialize(blockchainConfig);
+      setIsBlockchainConnected(true);
+      toast.success("Connected to blockchain!");
+    } catch (error) {
+      toast.error(`Failed to connect: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const verifyOnChain = async () => {
+    if (!generatedProof || !generatedProof.isValid) {
+      toast.error("No valid proof to verify");
+      return;
+    }
+
+    setIsVerifyingOnChain(true);
+    setVerificationResult(null);
+
+    try {
+      const result = await blockchainService.verifyProofOnChain(generatedProof.proof);
+      setVerificationResult(result);
+      
+      if (result.success) {
+        toast.success("Proof verified on blockchain!");
+      } else {
+        toast.error(`Verification failed: ${result.error}`);
+      }
+    } catch (error) {
+      toast.error(`Verification error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsVerifyingOnChain(false);
+    }
+  };
+
   const selectedClaimData = availableClaims.find(c => c.id === selectedClaim);
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-4xl mx-auto">
+        
+        {/* Blockchain Connection */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Wallet className="h-5 w-5" />
+              <span>Ethereum Blockchain Connection</span>
+            </CardTitle>
+            <CardDescription>
+              Connect to Ethereum blockchain for on-chain ZKP verification
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div>
+                <Label htmlFor="rpc-url">RPC URL</Label>
+                <Input
+                  id="rpc-url"
+                  value={blockchainConfig.rpcUrl}
+                  onChange={(e) => setBlockchainConfig({
+                    ...blockchainConfig,
+                    rpcUrl: e.target.value
+                  })}
+                  placeholder="http://localhost:8545"
+                />
+              </div>
+              <div>
+                <Label htmlFor="verifier-address">Verifier Contract</Label>
+                <Input
+                  id="verifier-address"
+                  value={blockchainConfig.verifierAddress}
+                  onChange={(e) => setBlockchainConfig({
+                    ...blockchainConfig,
+                    verifierAddress: e.target.value
+                  })}
+                  placeholder="0x..."
+                />
+              </div>
+              <div>
+                <Label htmlFor="chain-id">Chain ID</Label>
+                <Input
+                  id="chain-id"
+                  type="number"
+                  value={blockchainConfig.chainId}
+                  onChange={(e) => setBlockchainConfig({
+                    ...blockchainConfig,
+                    chainId: parseInt(e.target.value)
+                  })}
+                  placeholder="31337"
+                />
+              </div>
+            </div>
+            <Button
+              onClick={connectBlockchain}
+              disabled={isBlockchainConnected}
+              className="w-full"
+            >
+              {isBlockchainConnected ? (
+                <>
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Connected to Blockchain
+                </>
+              ) : (
+                <>
+                  <Link className="mr-2 h-4 w-4" />
+                  Connect to Blockchain
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             Zero-Knowledge Proof Generator
@@ -403,7 +520,59 @@ export default function ZKPGeneratorPage() {
                           <Download className="mr-2 h-4 w-4" />
                           Download
                         </Button>
+                        {isBlockchainConnected && (
+                          <Button
+                            variant="default"
+                            onClick={verifyOnChain}
+                            disabled={isVerifyingOnChain}
+                            className="flex-1"
+                          >
+                            {isVerifyingOnChain ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Verifying...
+                              </>
+                            ) : (
+                              <>
+                                <Link className="mr-2 h-4 w-4" />
+                                Verify on Chain
+                              </>
+                            )}
+                          </Button>
+                        )}
                       </div>
+
+                      {/* Blockchain Verification Result */}
+                      {verificationResult && (
+                        <div className="pt-4 border-t">
+                          <div className="flex items-center space-x-2 mb-2">
+                            {verificationResult.success ? (
+                              <>
+                                <CheckCircle className="h-5 w-5 text-green-500" />
+                                <span className="text-green-700 font-medium">Blockchain Verification Successful</span>
+                              </>
+                            ) : (
+                              <>
+                                <XCircle className="h-5 w-5 text-red-500" />
+                                <span className="text-red-700 font-medium">Blockchain Verification Failed</span>
+                              </>
+                            )}
+                          </div>
+                          {verificationResult.transactionHash && (
+                            <div className="mb-2">
+                              <span className="text-sm text-gray-600">Transaction Hash:</span>
+                              <p className="text-xs font-mono bg-gray-100 p-2 rounded">
+                                {verificationResult.transactionHash}
+                              </p>
+                            </div>
+                          )}
+                          {verificationResult.error && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                              <p className="text-red-700 text-sm">{verificationResult.error}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Verification Link */}
                       <div className="pt-4 border-t">
