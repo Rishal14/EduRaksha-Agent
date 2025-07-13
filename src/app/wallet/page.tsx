@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,117 +20,39 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-
-interface VerifiableCredential {
-  id: string;
-  type: string;
-  issuer: string;
-  subject: string;
-  issuedDate: string;
-  expiryDate: string;
-  claims: Record<string, any>;
-  signature: string;
-  status: 'active' | 'expired' | 'revoked';
-  proof: {
-    type: string;
-    created: string;
-    verificationMethod: string;
-    proofPurpose: string;
-    jws: string;
-  };
-}
-
-const sampleVCs: VerifiableCredential[] = [
-  {
-    id: "vc:marks:2024:001",
-    type: "EducationalCredential",
-    issuer: "CBSE Board",
-    subject: "Student ID: STU2024001",
-    issuedDate: "2024-06-15",
-    expiryDate: "2025-06-15",
-    claims: {
-      "marks": "88%",
-      "subject": "Class 12 Board Results",
-      "year": "2024",
-      "board": "CBSE"
-    },
-    signature: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-    status: 'active',
-    proof: {
-      type: "Ed25519Signature2020",
-      created: "2024-06-15T10:30:00Z",
-      verificationMethod: "did:cbse:board#key-1",
-      proofPurpose: "assertionMethod",
-      jws: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-    }
-  },
-  {
-    id: "vc:income:2024:001",
-    type: "IncomeCredential",
-    issuer: "Income Tax Department",
-    subject: "Student ID: STU2024001",
-    issuedDate: "2024-05-20",
-    expiryDate: "2025-05-20",
-    claims: {
-      "annualIncome": "₹80,000",
-      "familySize": "4",
-      "incomeCategory": "Low Income"
-    },
-    signature: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-    status: 'active',
-    proof: {
-      type: "Ed25519Signature2020",
-      created: "2024-05-20T14:15:00Z",
-      verificationMethod: "did:incometax:gov#key-1",
-      proofPurpose: "assertionMethod",
-      jws: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-    }
-  },
-  {
-    id: "vc:caste:2024:001",
-    type: "CasteCredential",
-    issuer: "State Government",
-    subject: "Student ID: STU2024001",
-    issuedDate: "2024-04-10",
-    expiryDate: "2025-04-10",
-    claims: {
-      "caste": "SC",
-      "category": "Scheduled Caste",
-      "certificateNumber": "SC2024001"
-    },
-    signature: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-    status: 'active',
-    proof: {
-      type: "Ed25519Signature2020",
-      created: "2024-04-10T09:45:00Z",
-      verificationMethod: "did:state:gov#key-1",
-      proofPurpose: "assertionMethod",
-      jws: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-    }
-  }
-];
+import { ssiWallet, type VerifiableCredential, initializeDemoCredentials } from "@/lib/ssi-wallet";
 
 export default function WalletPage() {
   const router = useRouter();
-  const [credentials, setCredentials] = useState<VerifiableCredential[]>(sampleVCs);
+  const [credentials, setCredentials] = useState<VerifiableCredential[]>([]);
   const [selectedVC, setSelectedVC] = useState<VerifiableCredential | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [selectedTab, setSelectedTab] = useState("all");
   const [newVC, setNewVC] = useState({
     type: "",
     issuer: "",
     claims: "",
     expiryDate: ""
   });
+  // Add form validation state
+  const [formError, setFormError] = useState<string | null>(null);
 
-  // Filter credentials based on selected tab
-  const filteredCredentials = credentials.filter(vc => {
-    if (selectedTab === "all") return true;
-    if (selectedTab === "active") return vc.status === 'active';
-    if (selectedTab === "expired") return vc.status === 'expired';
-    if (selectedTab === "revoked") return vc.status === 'revoked';
-    return vc.type.toLowerCase().includes(selectedTab.toLowerCase());
-  });
+  // Load credentials from SSI wallet on mount
+  useEffect(() => {
+    const loadCredentials = async () => {
+      let currentCredentials = ssiWallet.getAllCredentials();
+      
+      // If no credentials exist, initialize demo credentials
+      if (currentCredentials.length === 0) {
+        await initializeDemoCredentials();
+        currentCredentials = ssiWallet.getAllCredentials();
+      }
+      
+      console.log('Loaded credentials:', currentCredentials.length, currentCredentials);
+      setCredentials(currentCredentials);
+    };
+    
+    loadCredentials();
+  }, []);
 
   // Get wallet statistics
   const walletStats = {
@@ -161,40 +83,68 @@ export default function WalletPage() {
     }
   };
 
-  const handleAddVC = () => {
-    const vc: VerifiableCredential = {
-      id: `vc:${newVC.type.toLowerCase()}:${Date.now()}`,
-      type: newVC.type,
-      issuer: newVC.issuer,
-      subject: "Student ID: STU2024001",
-      issuedDate: new Date().toISOString().split('T')[0],
-      expiryDate: newVC.expiryDate,
-      claims: JSON.parse(newVC.claims),
-      signature: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-      status: 'active',
-      proof: {
-        type: "Ed25519Signature2020",
-        created: new Date().toISOString(),
-        verificationMethod: `did:${newVC.issuer.toLowerCase()}:gov#key-1`,
-        proofPurpose: "assertionMethod",
-        jws: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-      }
-    };
+  const isFormValid = () => {
+    if (!newVC.type || !newVC.issuer || !newVC.claims) return false;
+    try {
+      JSON.parse(newVC.claims);
+    } catch {
+      return false;
+    }
+    return true;
+  };
 
-    setCredentials([...credentials, vc]);
-    setShowAddForm(false);
-    setNewVC({ type: "", issuer: "", claims: "", expiryDate: "" });
+  const handleAddVC = () => {
+    setFormError(null);
+    console.log('Add VC: Start', newVC);
+    if (!newVC.type || !newVC.issuer || !newVC.claims) {
+      setFormError("All fields are required.");
+      console.error('Add VC: Missing fields', newVC);
+      return;
+    }
+    try {
+      const claimsObj = JSON.parse(newVC.claims || '{}');
+      console.log('Add VC: Parsed claims', claimsObj);
+      const vc: Omit<VerifiableCredential, 'id' | 'proof'> = {
+        type: newVC.type,
+        issuer: {
+          id: `issuer:${newVC.issuer.toLowerCase().replace(/\s+/g, '-')}`,
+          name: newVC.issuer
+        },
+        subject: {
+          id: "student:stu2024001",
+          name: "Student ID: STU2024001"
+        },
+        issuanceDate: new Date().toISOString(),
+        expirationDate: newVC.expiryDate,
+        credentialSubject: claimsObj,
+        status: 'active'
+      };
+      console.log('Add VC: Prepared VC', vc);
+      ssiWallet.addCredential(vc).then(() => {
+        console.log('Add VC: Credential added successfully');
+        setCredentials(ssiWallet.getAllCredentials());
+        setShowAddForm(false);
+        setNewVC({ type: "", issuer: "", claims: "", expiryDate: "" });
+        toast.success("Credential added successfully!");
+      }).catch((error) => {
+        console.error('Add VC: Error adding credential:', error);
+        setFormError("Failed to add credential. Please check your input.");
+        toast.error("Failed to add credential. Please check your input.");
+      });
+    } catch (err) {
+      setFormError("Invalid JSON in claims field. Please check the format.");
+      console.error('Add VC: Invalid JSON', err);
+      toast.error("Invalid JSON in claims field. Please check the format.");
+    }
   };
 
   const handleRevokeVC = (vcId: string) => {
-    setCredentials(credentials.map(vc => 
-      vc.id === vcId ? { ...vc, status: 'revoked' as const } : vc
-    ));
+    ssiWallet.revokeCredential(vcId);
+    setCredentials(ssiWallet.getAllCredentials());
     toast.success("Credential revoked successfully");
   };
 
   const handleUseForScholarship = (vc: VerifiableCredential) => {
-    // Store selected credential for scholarship application
     localStorage.setItem('selectedCredential', JSON.stringify(vc));
     router.push('/scholarship');
     toast.success("Credential selected for scholarship application");
@@ -229,18 +179,33 @@ export default function WalletPage() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const walletData = JSON.parse(e.target?.result as string);
         if (walletData.credentials) {
-          setCredentials(walletData.credentials);
+          // Import each credential individually
+          for (const credential of walletData.credentials) {
+            await ssiWallet.importCredential(JSON.stringify(credential));
+          }
+          setCredentials(ssiWallet.getAllCredentials());
           toast.success("Wallet imported successfully");
         }
-      } catch (error) {
+      } catch {
         toast.error("Invalid wallet file");
       }
     };
     reader.readAsText(file);
+  };
+
+  // Add this function to fill the form with a valid example
+  const fillExample = () => {
+    setNewVC({
+      type: "EducationalCredential",
+      issuer: "CBSE Board",
+      claims: '{"marks": "95", "subject": "Math"}',
+      expiryDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().slice(0, 10)
+    });
+    setFormError(null);
   };
 
   return (
@@ -366,6 +331,9 @@ export default function WalletPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {formError && (
+                  <div className="p-2 bg-red-100 text-red-700 rounded text-sm">{formError}</div>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700">Credential Type</label>
@@ -408,15 +376,22 @@ export default function WalletPage() {
                   />
                 </div>
                 <div className="flex space-x-3">
-                  <Button onClick={handleAddVC} className="flex-1">
+                  <Button onClick={handleAddVC} className="flex-1" disabled={!isFormValid()}>
                     Add Credential
                   </Button>
                   <Button 
                     variant="outline" 
-                    onClick={() => setShowAddForm(false)}
+                    onClick={() => { setShowAddForm(false); setFormError(null); }}
                     className="flex-1"
                   >
                     Cancel
+                  </Button>
+                  <Button 
+                    variant="secondary"
+                    onClick={fillExample}
+                    className="flex-1"
+                  >
+                    Fill Example
                   </Button>
                 </div>
               </CardContent>
@@ -447,15 +422,15 @@ export default function WalletPage() {
                       ID: {vc.id}
                     </div>
                   </div>
-                  <CardTitle className="text-lg">{vc.issuer}</CardTitle>
+                  <CardTitle className="text-lg">{vc.issuer.name}</CardTitle>
                   <CardDescription>
-                    Issued: {new Date(vc.issuedDate).toLocaleDateString()} | 
-                    Expires: {new Date(vc.expiryDate).toLocaleDateString()}
+                    Issued: {new Date(vc.issuanceDate).toLocaleDateString()} | 
+                    Expires: {vc.expirationDate ? new Date(vc.expirationDate).toLocaleDateString() : 'No expiry'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 gap-4 text-sm">
-                    {Object.entries(vc.claims).map(([key, value]) => (
+                    {Object.entries(vc.credentialSubject).map(([key, value]) => (
                       <div key={key} className="flex justify-between">
                         <span className="text-gray-600 capitalize">{key}:</span>
                         <span className="font-medium">{String(value)}</span>
@@ -520,11 +495,11 @@ export default function WalletPage() {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Issuer:</span>
-                        <span>{selectedVC.issuer}</span>
+                        <span>{selectedVC.issuer.name}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Subject:</span>
-                        <span>{selectedVC.subject}</span>
+                        <span>{selectedVC.subject.name}</span>
                       </div>
                     </div>
                   </div>
@@ -532,7 +507,7 @@ export default function WalletPage() {
                   <div>
                     <h4 className="font-semibold text-gray-900 mb-2">Claims</h4>
                     <pre className="bg-gray-50 p-3 rounded-lg text-xs overflow-x-auto">
-                      {JSON.stringify(selectedVC.claims, null, 2)}
+                      {JSON.stringify(selectedVC.credentialSubject, null, 2)}
                     </pre>
                   </div>
 

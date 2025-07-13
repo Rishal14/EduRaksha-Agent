@@ -9,7 +9,7 @@ interface VCCardProps {
     issuer: string;
     issuedDate: string;
     expiryDate: string;
-    claims: Record<string, any>;
+    claims: Record<string, string | number | boolean>;
     status: 'active' | 'expired' | 'revoked';
   };
   onGenerateZKP?: (vcId: string) => void;

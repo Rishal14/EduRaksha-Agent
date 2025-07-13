@@ -1,6 +1,8 @@
 import { ChatOllama } from "@langchain/ollama";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ollamaManager } from "./ollama-config";
+import { translationService, TranslationResponse } from "./translation-service";
+import { scholarshipScraper, UserProfile, ScholarshipRecommendation } from "./scholarship-scraper";
 
 export interface AIResponse {
   answer: string;
@@ -9,6 +11,11 @@ export interface AIResponse {
   relatedCredentials: string[];
   modelUsed?: string;
   isFallback?: boolean;
+  translations?: {
+    kannada?: TranslationResponse;
+    hindi?: TranslationResponse;
+  };
+  scholarshipRecommendations?: ScholarshipRecommendation[];
 }
 
 export interface StudentContext {
@@ -111,6 +118,8 @@ Always prioritize privacy and guide students to use ZKPs rather than sharing raw
       await this.initialize();
     }
 
+    let aiResponse: AIResponse;
+
     // Try to use Llama if available
     if (this.model) {
       try {
@@ -122,22 +131,60 @@ Always prioritize privacy and guide students to use ZKPs rather than sharing raw
         const response = await this.model.invoke(messages);
         const config = ollamaManager.getConfig();
         
-        return {
+        aiResponse = {
           ...this.parseResponse(response.content as string),
           modelUsed: config.model,
           isFallback: false
         };
       } catch (error) {
         console.error("Llama query failed, falling back to mock response:", error);
+        const mockResponse = await this.mockQuery(question);
+        aiResponse = {
+          ...mockResponse,
+          modelUsed: "fallback",
+          isFallback: true
+        };
+      }
+    } else {
+      // Fallback to mock response
+      const mockResponse = await this.mockQuery(question);
+      aiResponse = {
+        ...mockResponse,
+        modelUsed: "fallback",
+        isFallback: true
+      };
+    }
+
+    // Add translations if the question is in English
+    if (translationService.isEnglishText(question)) {
+      try {
+        const [kannadaTranslation, hindiTranslation] = await Promise.all([
+          translationService.translateToKannada(aiResponse.answer),
+          translationService.translateToHindi(aiResponse.answer)
+        ]);
+
+        aiResponse.translations = {
+          kannada: kannadaTranslation,
+          hindi: hindiTranslation
+        };
+      } catch {
+        console.warn("Translation service unavailable, continuing without translations");
+        // Continue without translations - this is not a critical error
       }
     }
 
-    // Fallback to mock response
-    return {
-      ...this.mockQuery(question),
-      modelUsed: "fallback",
-      isFallback: true
-    };
+    // Add scholarship recommendations if the question is about scholarships
+    if (this.isScholarshipQuestion(question)) {
+      try {
+        const userProfile = this.extractUserProfile(context);
+        const recommendations = await scholarshipScraper.getRecommendations(userProfile);
+        aiResponse.scholarshipRecommendations = recommendations.slice(0, 3); // Top 3 recommendations
+      } catch (error) {
+        console.error("Scholarship recommendations failed:", error);
+      }
+    }
+
+    return aiResponse;
   }
 
   private generateContextualQuestion(question: string, context?: StudentContext): string {
@@ -304,6 +351,58 @@ Always prioritize privacy and guide students to use ZKPs rather than sharing raw
     }
     
     return responses.scholarship;
+  }
+
+  // Check if the question is about scholarships
+  private isScholarshipQuestion(question: string): boolean {
+    const scholarshipKeywords = [
+      'scholarship', 'scholarships', 'eligible', 'eligibility', 'apply', 'application',
+      'funding', 'financial aid', 'grant', 'bursary', 'fellowship', 'stipend'
+    ];
+    
+    const lowerQuestion = question.toLowerCase();
+    return scholarshipKeywords.some(keyword => lowerQuestion.includes(keyword));
+  }
+
+  // Extract user profile from context
+  private extractUserProfile(context?: StudentContext): UserProfile {
+    if (!context || !context.credentials) {
+      return {};
+    }
+
+    const profile: UserProfile = {};
+
+    for (const credential of context.credentials) {
+      switch (credential.type) {
+        case 'IncomeCredential':
+          const income = credential.claims.annualIncome;
+          if (income) {
+            profile.income = parseInt(income.toString().replace(/[^\d]/g, ''));
+          }
+          break;
+        
+        case 'CasteCredential':
+          profile.caste = credential.claims.caste as string;
+          break;
+        
+        case 'EducationalCredential':
+          const marks = credential.claims.percentage;
+          if (marks) {
+            profile.marks = parseInt(marks.toString());
+          }
+          break;
+        
+        case 'RegionCredential':
+          profile.region = credential.claims.region as 'rural' | 'urban';
+          break;
+        
+        case 'DisabilityCredential':
+          profile.disability = credential.claims.hasDisability as boolean;
+          break;
+      }
+    }
+
+    return profile;
   }
 }
 

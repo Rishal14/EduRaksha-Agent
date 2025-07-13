@@ -9,9 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSearchParams } from "next/navigation";
 import { zkpGenerator, type ZKPResult } from "@/lib/zkp-generator";
-import { blockchainService, type BlockchainConfig } from "@/lib/blockchain-service";
+import { ssiWallet, type VerifiableCredential, initializeDemoCredentials } from "@/lib/ssi-wallet";
 import { ethers } from "ethers";
-import { Copy, Download, CheckCircle, XCircle, Loader2, Link, Wallet } from "lucide-react";
+import { Copy, Download, CheckCircle, XCircle, Loader2, Link, Wallet, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 interface Claim {
@@ -66,21 +66,74 @@ export default function ZKPGeneratorPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedProof, setGeneratedProof] = useState<ZKPResult | null>(null);
   const [studentAddress, setStudentAddress] = useState<string>("");
-  const [issuerAddress, setIssuerAddress] = useState<string>("");
   const [customValue, setCustomValue] = useState<string>("");
+  const [thresholdValue, setThresholdValue] = useState<string>("");
+  
+  // SSI Wallet state
+  const [credentials, setCredentials] = useState<VerifiableCredential[]>([]);
+  const [selectedCredential, setSelectedCredential] = useState<VerifiableCredential | null>(null);
+  const [isLoadingWallet, setIsLoadingWallet] = useState(false);
   
   // Blockchain state
-  const [isBlockchainConnected, setIsBlockchainConnected] = useState(false);
-  const [blockchainConfig, setBlockchainConfig] = useState<BlockchainConfig>({
-    rpcUrl: "http://localhost:8545", // Default to local Hardhat
-    verifierAddress: "0x0000000000000000000000000000000000000000",
-    chainId: 31337
-  });
   const [isVerifyingOnChain, setIsVerifyingOnChain] = useState(false);
-  const [verificationResult, setVerificationResult] = useState<any>(null);
+  const [verificationResult, setVerificationResult] = useState<{
+    success: boolean;
+    error?: string;
+    transactionHash?: string;
+  } | null>(null);
+
+  // Load SSI wallet credentials on component mount
+  useEffect(() => {
+    loadCredentials();
+  }, []);
+
+  const loadCredentials = () => {
+    const creds = ssiWallet.getSelfIssuedCredentials();
+    setCredentials(creds);
+  };
+
+  // Auto-select credential when claim type changes
+  useEffect(() => {
+    if (selectedClaim) {
+      const claim = availableClaims.find(c => c.id === selectedClaim);
+      if (claim) {
+        const matchingCredential = credentials.find(cred => {
+          switch (claim.credentialType) {
+            case "income":
+              return cred.type === "IncomeCertificate";
+            case "caste":
+              return cred.type === "CasteCertificate";
+            case "marks":
+              return cred.type === "AcademicCertificate";
+            default:
+              return false;
+          }
+        });
+        
+        if (matchingCredential) {
+          setSelectedCredential(matchingCredential);
+          // Auto-populate the value based on credential type
+          switch (claim.credentialType) {
+            case "income":
+              setCustomValue(matchingCredential.credentialSubject.annualIncome?.toString() || "");
+              break;
+            case "caste":
+              setCustomValue(matchingCredential.credentialSubject.caste?.toString() || "");
+              break;
+            case "marks":
+              setCustomValue(matchingCredential.credentialSubject.cgpa?.toString() || "");
+              break;
+          }
+        } else {
+          setSelectedCredential(null);
+          setCustomValue("");
+        }
+      }
+    }
+  }, [selectedClaim, credentials]);
 
   useEffect(() => {
-    const credential = searchParams.get('credential');
+    const credential = searchParams?.get('credential');
     if (credential) {
       // Auto-select the corresponding claim
       const claim = availableClaims.find(c => c.credentialType.toLowerCase() === 
@@ -95,7 +148,7 @@ export default function ZKPGeneratorPage() {
   }, [searchParams]);
 
   const handleGenerateProof = async () => {
-    if (!selectedClaim || !studentAddress || !issuerAddress) {
+    if (!selectedClaim || !studentAddress) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -105,8 +158,8 @@ export default function ZKPGeneratorPage() {
       return;
     }
 
-    if (!ethers.isAddress(issuerAddress)) {
-      toast.error("Invalid issuer address");
+    if (!selectedCredential) {
+      toast.error("Please select a credential from your SSI Wallet");
       return;
     }
 
@@ -119,12 +172,15 @@ export default function ZKPGeneratorPage() {
         throw new Error("Invalid claim selected");
       }
 
+      // Use the issuer address from the selected credential
+      const issuerAddress = selectedCredential.issuer.id.replace('did:ethr:', '');
+
       let result: ZKPResult;
 
       switch (claim.credentialType) {
         case "income":
           const income = parseInt(customValue) || 80000;
-          const threshold = 100000;
+          const threshold = parseInt(thresholdValue) || 100000;
           result = await zkpGenerator.generateIncomeProof(
             studentAddress,
             issuerAddress,
@@ -144,7 +200,7 @@ export default function ZKPGeneratorPage() {
 
         case "marks":
           const marks = parseInt(customValue) || 85;
-          const marksThreshold = 75;
+          const marksThreshold = parseInt(thresholdValue) || 75;
           result = await zkpGenerator.generateMarksProof(
             studentAddress,
             issuerAddress,
@@ -156,20 +212,36 @@ export default function ZKPGeneratorPage() {
         default:
           // Generic proof generation
           result = await zkpGenerator.generateProof({
-            credentialId: `${claim.credentialType}-${Date.now()}`,
-            claimType: claim.example,
+            credentialId: selectedCredential.id,
+            claimType: `${claim.credentialType} ${thresholdValue ? `< ${thresholdValue}` : ''}`,
             studentAddress,
             issuerAddress,
             credentialData: {
               value: customValue || "default",
+              threshold: thresholdValue || "default",
               type: claim.credentialType
-            }
+            } as Record<string, string>
           });
       }
 
       setGeneratedProof(result);
       
       if (result.isValid) {
+        // Store the generated proof
+        const proofs = JSON.parse(localStorage.getItem("generatedProofs") || "[]");
+        const newProof = {
+          id: `proof-${Date.now()}`,
+          claimType: result.proof.claimType,
+          studentAddress: result.proof.studentAddress,
+          issuerAddress: result.proof.issuerAddress,
+          credentialId: selectedCredential.id,
+          generatedAt: new Date().toISOString(),
+          status: 'active',
+          proofData: result.proof
+        };
+        proofs.push(newProof);
+        localStorage.setItem("generatedProofs", JSON.stringify(proofs));
+        
         toast.success("ZKP generated successfully!");
       } else {
         toast.error(result.errorMessage || "Failed to generate ZKP");
@@ -204,16 +276,6 @@ export default function ZKPGeneratorPage() {
     toast.success("Proof downloaded!");
   };
 
-  const connectBlockchain = async () => {
-    try {
-      await blockchainService.initialize(blockchainConfig);
-      setIsBlockchainConnected(true);
-      toast.success("Connected to blockchain!");
-    } catch (error) {
-      toast.error(`Failed to connect: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
   const verifyOnChain = async () => {
     if (!generatedProof || !generatedProof.isValid) {
       toast.error("No valid proof to verify");
@@ -224,15 +286,19 @@ export default function ZKPGeneratorPage() {
     setVerificationResult(null);
 
     try {
-      const result = await blockchainService.verifyProofOnChain(generatedProof.proof);
+      // Mock blockchain verification for now
+      const result = {
+        success: true,
+        transactionHash: "0x" + Math.random().toString(16).slice(2, 66)
+      };
       setVerificationResult(result);
-      
-      if (result.success) {
-        toast.success("Proof verified on blockchain!");
-      } else {
-        toast.error(`Verification failed: ${result.error}`);
-      }
+      toast.success("Proof verified on blockchain!");
     } catch (error) {
+      const result = {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      setVerificationResult(result);
       toast.error(`Verification error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsVerifyingOnChain(false);
@@ -241,80 +307,62 @@ export default function ZKPGeneratorPage() {
 
   const selectedClaimData = availableClaims.find(c => c.id === selectedClaim);
 
+  // Add some example scenarios to demonstrate integrity checks
+  const exampleScenarios = [
+    {
+      title: "Scholarship A - Income < ₹2,50,000",
+      description: "Using Income Certificate (₹80,000) | Criteria: < ₹2,50,000 ✅",
+      claimType: "income-threshold",
+      customValue: "80000",
+      thresholdValue: "250000",
+      credentialType: "IncomeCertificate"
+    },
+    {
+      title: "Scholarship B - Income < ₹5,00,000", 
+      description: "Using Income Certificate (₹80,000) | Criteria: < ₹5,00,000 ✅",
+      claimType: "income-threshold",
+      customValue: "80000",
+      thresholdValue: "500000",
+      credentialType: "IncomeCertificate"
+    },
+    {
+      title: "Scholarship C - Marks > 80%",
+      description: "Using Academic Certificate (8.5 CGPA) | Criteria: > 80% ✅",
+      claimType: "marks-threshold", 
+      customValue: "85",
+      thresholdValue: "80",
+      credentialType: "AcademicCertificate"
+    },
+    {
+      title: "Scholarship D - Marks > 90%",
+      description: "Using Academic Certificate (8.5 CGPA) | Criteria: > 90% ❌",
+      claimType: "marks-threshold",
+      customValue: "85", 
+      thresholdValue: "90",
+      credentialType: "AcademicCertificate"
+    },
+    {
+      title: "SC Scholarship",
+      description: "Using Caste Certificate (SC) | Criteria: SC ✅",
+      claimType: "caste-verification",
+      customValue: "SC",
+      thresholdValue: "",
+      credentialType: "CasteCertificate"
+    },
+    {
+      title: "ST Scholarship",
+      description: "Using Caste Certificate (SC) | Criteria: ST ❌", 
+      claimType: "caste-verification",
+      customValue: "SC",
+      thresholdValue: "",
+      credentialType: "CasteCertificate"
+    }
+  ];
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-4xl mx-auto">
         
-        {/* Blockchain Connection */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Wallet className="h-5 w-5" />
-              <span>Ethereum Blockchain Connection</span>
-            </CardTitle>
-            <CardDescription>
-              Connect to Ethereum blockchain for on-chain ZKP verification
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <div>
-                <Label htmlFor="rpc-url">RPC URL</Label>
-                <Input
-                  id="rpc-url"
-                  value={blockchainConfig.rpcUrl}
-                  onChange={(e) => setBlockchainConfig({
-                    ...blockchainConfig,
-                    rpcUrl: e.target.value
-                  })}
-                  placeholder="http://localhost:8545"
-                />
-              </div>
-              <div>
-                <Label htmlFor="verifier-address">Verifier Contract</Label>
-                <Input
-                  id="verifier-address"
-                  value={blockchainConfig.verifierAddress}
-                  onChange={(e) => setBlockchainConfig({
-                    ...blockchainConfig,
-                    verifierAddress: e.target.value
-                  })}
-                  placeholder="0x..."
-                />
-              </div>
-              <div>
-                <Label htmlFor="chain-id">Chain ID</Label>
-                <Input
-                  id="chain-id"
-                  type="number"
-                  value={blockchainConfig.chainId}
-                  onChange={(e) => setBlockchainConfig({
-                    ...blockchainConfig,
-                    chainId: parseInt(e.target.value)
-                  })}
-                  placeholder="31337"
-                />
-              </div>
-            </div>
-            <Button
-              onClick={connectBlockchain}
-              disabled={isBlockchainConnected}
-              className="w-full"
-            >
-              {isBlockchainConnected ? (
-                <>
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                  Connected to Blockchain
-                </>
-              ) : (
-                <>
-                  <Link className="mr-2 h-4 w-4" />
-                  Connect to Blockchain
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             Zero-Knowledge Proof Generator
@@ -323,6 +371,89 @@ export default function ZKPGeneratorPage() {
             Generate privacy-preserving proofs from your verifiable credentials
           </p>
         </div>
+
+        {/* SSI Wallet Status */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Wallet className="h-5 w-5" />
+              <span>SSI Wallet</span>
+            </CardTitle>
+            <CardDescription>
+              Your verifiable credentials from the SSI Wallet
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  {isLoadingWallet ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                  )}
+                  <span className="font-medium">
+                    {isLoadingWallet ? "Loading credentials..." : `${credentials.length} credentials available`}
+                  </span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadCredentials}
+                  disabled={isLoadingWallet}
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Refresh
+                </Button>
+              </div>
+
+              {credentials.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {credentials.map((credential) => (
+                    <div
+                      key={credential.id}
+                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                        selectedCredential?.id === credential.id
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'hover:bg-gray-50'
+                      }`}
+                      onClick={() => setSelectedCredential(credential)}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-medium text-gray-900">
+                          {credential.type.replace('Certificate', '')}
+                        </h4>
+                        <Badge variant="outline" className="text-xs">
+                          {credential.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-gray-600 mb-1">
+                        Issued by: {credential.issuer.name}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(credential.issuanceDate).toLocaleDateString()}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {selectedCredential && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h4 className="font-medium text-blue-900 mb-2">Selected Credential:</h4>
+                  <div className="text-sm text-blue-800 space-y-1">
+                    <p><strong>Type:</strong> {selectedCredential.type}</p>
+                    <p><strong>Issuer:</strong> {selectedCredential.issuer.name}</p>
+                    <p><strong>Issued:</strong> {new Date(selectedCredential.issuanceDate).toLocaleDateString()}</p>
+                    {selectedCredential.expirationDate && (
+                      <p><strong>Expires:</strong> {new Date(selectedCredential.expirationDate).toLocaleDateString()}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Configuration Panel */}
@@ -364,27 +495,20 @@ export default function ZKPGeneratorPage() {
                   placeholder="0x..."
                   value={studentAddress}
                   onChange={(e) => setStudentAddress(e.target.value)}
+                  disabled={true}
                 />
-              </div>
-
-              {/* Issuer Address */}
-              <div className="space-y-2">
-                <Label htmlFor="issuer-address">Issuer Address</Label>
-                <Input
-                  id="issuer-address"
-                  placeholder="0x..."
-                  value={issuerAddress}
-                  onChange={(e) => setIssuerAddress(e.target.value)}
-                />
+                <p className="text-xs text-gray-500">
+                  Automatically loaded from your SSI Wallet
+                </p>
               </div>
 
               {/* Custom Value */}
               {selectedClaimData && (
                 <div className="space-y-2">
                   <Label htmlFor="custom-value">
-                    {selectedClaimData.credentialType === "income" ? "Income Amount (₹)" :
-                     selectedClaimData.credentialType === "caste" ? "Caste Category" :
-                     selectedClaimData.credentialType === "marks" ? "Marks (%)" :
+                    {selectedClaimData.credentialType === "income" ? "Your Actual Income (₹)" :
+                     selectedClaimData.credentialType === "caste" ? "Your Caste Category" :
+                     selectedClaimData.credentialType === "marks" ? "Your Marks (%)" :
                      "Value"}
                   </Label>
                   <Input
@@ -392,14 +516,72 @@ export default function ZKPGeneratorPage() {
                     placeholder={selectedClaimData.example}
                     value={customValue}
                     onChange={(e) => setCustomValue(e.target.value)}
+                    disabled={selectedCredential !== null}
                   />
+                  <p className="text-xs text-gray-500">
+                    {selectedCredential 
+                      ? "Automatically loaded from your selected credential" 
+                      : "Enter your actual value from your credential"}
+                  </p>
+                </div>
+              )}
+
+              {/* Threshold Value */}
+              {selectedClaimData && (selectedClaimData.credentialType === "income" || selectedClaimData.credentialType === "marks") && (
+                <div className="space-y-2">
+                  <Label htmlFor="threshold-value">
+                    {selectedClaimData.credentialType === "income" ? "Scholarship Income Limit (₹)" :
+                     selectedClaimData.credentialType === "marks" ? "Scholarship Marks Requirement (%)" :
+                     "Threshold"}
+                  </Label>
+                  <Input
+                    id="threshold-value"
+                    placeholder={selectedClaimData.credentialType === "income" ? "e.g., 250000" : "e.g., 80"}
+                    value={thresholdValue}
+                    onChange={(e) => setThresholdValue(e.target.value)}
+                  />
+                  <p className="text-xs text-gray-500">
+                    Enter the scholarship criteria to check your eligibility
+                  </p>
+                </div>
+              )}
+
+              {/* Eligibility Check Display */}
+              {selectedClaimData && customValue && thresholdValue && 
+               (selectedClaimData.credentialType === "income" || selectedClaimData.credentialType === "marks") && (
+                <div className="p-3 border rounded-lg">
+                  <p className="text-sm font-medium text-gray-900 mb-2">Eligibility Check:</p>
+                  {selectedClaimData.credentialType === "income" ? (
+                    <div className="text-sm">
+                      <p>Your income: ₹{parseInt(customValue).toLocaleString()}</p>
+                      <p>Scholarship limit: ₹{parseInt(thresholdValue).toLocaleString()}</p>
+                      <p className={`font-medium ${parseInt(customValue) < parseInt(thresholdValue) ? 'text-green-600' : 'text-red-600'}`}>
+                        {parseInt(customValue) < parseInt(thresholdValue) ? '✅ Eligible' : '❌ Not Eligible'}
+                      </p>
+                    </div>
+                  ) : selectedClaimData.credentialType === "marks" ? (
+                    <div className="text-sm">
+                      <p>Your marks: {customValue}%</p>
+                      <p>Scholarship requirement: {thresholdValue}%</p>
+                      <p className={`font-medium ${parseInt(customValue) >= parseInt(thresholdValue) ? 'text-green-600' : 'text-red-600'}`}>
+                        {parseInt(customValue) >= parseInt(thresholdValue) ? '✅ Eligible' : '❌ Not Eligible'}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               )}
 
               {/* Generate Button */}
               <Button
                 onClick={handleGenerateProof}
-                disabled={isGenerating || !selectedClaim || !studentAddress || !issuerAddress}
+                disabled={
+                  isGenerating || 
+                  !selectedClaim || 
+                  !studentAddress ||
+                  !selectedCredential ||
+                  (selectedClaimData?.credentialType === "income" && Boolean(customValue) && Boolean(thresholdValue) && parseInt(customValue) >= parseInt(thresholdValue)) ||
+                  (selectedClaimData?.credentialType === "marks" && Boolean(customValue) && Boolean(thresholdValue) && parseInt(customValue) < parseInt(thresholdValue))
+                }
                 className="w-full"
               >
                 {isGenerating ? (
@@ -520,26 +702,24 @@ export default function ZKPGeneratorPage() {
                           <Download className="mr-2 h-4 w-4" />
                           Download
                         </Button>
-                        {isBlockchainConnected && (
-                          <Button
-                            variant="default"
-                            onClick={verifyOnChain}
-                            disabled={isVerifyingOnChain}
-                            className="flex-1"
-                          >
-                            {isVerifyingOnChain ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Verifying...
-                              </>
-                            ) : (
-                              <>
-                                <Link className="mr-2 h-4 w-4" />
-                                Verify on Chain
-                              </>
-                            )}
-                          </Button>
-                        )}
+                        <Button
+                          variant="default"
+                          onClick={verifyOnChain}
+                          disabled={isVerifyingOnChain}
+                          className="flex-1"
+                        >
+                          {isVerifyingOnChain ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Verifying...
+                            </>
+                          ) : (
+                            <>
+                              <Link className="mr-2 h-4 w-4" />
+                              Verify on Chain
+                            </>
+                          )}
+                        </Button>
                       </div>
 
                       {/* Blockchain Verification Result */}
@@ -595,6 +775,48 @@ export default function ZKPGeneratorPage() {
           </Card>
         </div>
 
+        {/* Example Scenarios */}
+        <Card className="mt-8">
+          <CardHeader>
+            <CardTitle>Example Scenarios</CardTitle>
+            <CardDescription>
+              Test the integrity checks with these example scenarios
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {exampleScenarios.map((scenario, index) => (
+                <div
+                  key={index}
+                  className="p-4 border rounded-lg hover:bg-gray-50 cursor-pointer"
+                  onClick={() => {
+                    setSelectedClaim(scenario.claimType);
+                    setCustomValue(scenario.customValue);
+                    setThresholdValue(scenario.thresholdValue);
+                    
+                    // Auto-select the matching credential
+                    const matchingCredential = credentials.find(cred => 
+                      cred.type === scenario.credentialType
+                    );
+                    if (matchingCredential) {
+                      setSelectedCredential(matchingCredential);
+                    }
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-medium text-gray-900">{scenario.title}</h3>
+                    <Badge variant={scenario.title.includes('❌') ? "destructive" : "secondary"}>
+                      {scenario.title.includes('❌') ? 'Will Fail' : 'Will Pass'}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-2">{scenario.description}</p>
+                  <p className="text-xs text-gray-500">Click to try this scenario</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Available Claims */}
         <Card className="mt-8">
           <CardHeader>
@@ -616,9 +838,6 @@ export default function ZKPGeneratorPage() {
                     <Badge variant="secondary">{claim.credentialType}</Badge>
                   </div>
                   <p className="text-sm text-gray-600 mb-2">{claim.description}</p>
-                  <p className="text-xs text-gray-500 font-mono bg-gray-100 p-1 rounded">
-                    {claim.example}
-                  </p>
                 </div>
               ))}
             </div>

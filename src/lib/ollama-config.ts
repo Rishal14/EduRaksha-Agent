@@ -48,7 +48,7 @@ export class OllamaManager {
       if (!response.ok) throw new Error("Failed to fetch models");
       
       const data = await response.json();
-      return data.models?.map((model: any) => model.name) || [];
+      return data.models?.map((model: { name: string }) => model.name) || [];
     } catch (error) {
       console.error("Failed to get available models:", error);
       return [];

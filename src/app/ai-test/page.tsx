@@ -6,15 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Bot, CheckCircle, XCircle, AlertCircle } from "lucide-react";
-import { aiAssistant } from "@/lib/ai-assistant";
+import { Loader2, Bot, CheckCircle, XCircle, AlertCircle, Languages, Globe } from "lucide-react";
+import { aiAssistant, AIResponse } from "@/lib/ai-assistant";
 import { ollamaManager } from "@/lib/ollama-config";
 import { toast } from "sonner";
 
 export default function AITestPage() {
   const [question, setQuestion] = useState("");
-  const [response, setResponse] = useState<any>(null);
+  const [response, setResponse] = useState<AIResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showTranslations, setShowTranslations] = useState(true);
   const [ollamaStatus, setOllamaStatus] = useState<{
     connected: boolean;
     models: string[];
@@ -30,6 +31,8 @@ export default function AITestPage() {
     "How do I prove my income is less than ₹1,00,000?",
     "What documents do I need for scholarship application?",
     "How does privacy protection work in this system?",
+    "Can you help me generate a ZKP proof?",
+    "What scholarships are available for rural students?",
   ];
 
   const checkOllamaStatus = async () => {
@@ -71,7 +74,7 @@ export default function AITestPage() {
         toast.success(`Model ${modelName} pulled successfully!`);
         checkOllamaStatus(); // Refresh status
       } else {
-        toast.error(`Failed to pull model ${modelName}`);
+        toast.error(`Failed to pull model ${modelName}.`);
       }
     } catch (error) {
       console.error("Error pulling model:", error);
@@ -89,11 +92,15 @@ export default function AITestPage() {
       {/* Header */}
       <div className="text-center space-y-4">
         <h1 className="text-4xl font-bold text-gray-900">
-          AI Assistant Test
+          AI Assistant 
         </h1>
         <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-          Test the Llama AI integration for the EduRaksha AI Assistant
+          Test the Llama AI integration for the EduRaksha AI Assistant with multilingual support
         </p>
+        <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
+          <Globe className="w-4 h-4" />
+          <span>Supports English, Kannada, and Hindi</span>
+        </div>
       </div>
 
       {/* Ollama Status */}
@@ -162,7 +169,7 @@ export default function AITestPage() {
                     <p className="text-sm font-medium text-yellow-900">Ollama Not Running</p>
                     <p className="text-xs text-yellow-700 mt-1">
                       Please install and start Ollama to use Llama models. 
-                      The AI Assistant will fall back to mock responses.
+                      The AI Assistant will fall back to mock responses with translations.
                     </p>
                   </div>
                 </div>
@@ -175,9 +182,12 @@ export default function AITestPage() {
       {/* AI Chat Interface */}
       <Card>
         <CardHeader>
-          <CardTitle>Ask the AI Assistant</CardTitle>
+          <CardTitle className="flex items-center space-x-2">
+            <Bot className="w-5 h-5" />
+            <span>Ask the AI Assistant</span>
+          </CardTitle>
           <CardDescription>
-            Test the AI assistant with questions about scholarships and privacy
+            Test the AI assistant with questions about scholarships and privacy. All responses are automatically translated to Kannada and Hindi.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -224,15 +234,89 @@ export default function AITestPage() {
             {/* AI Response */}
             {response && (
               <div className="space-y-4">
-                <div className="p-4 bg-gray-50 rounded-lg">
+                {/* English Response */}
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-start space-x-2">
                     <Bot className="w-5 h-5 text-blue-600 mt-0.5" />
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900 mb-2">AI Response:</p>
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{response.answer}</p>
+                      <div className="flex items-center space-x-2 mb-2">
+                        <p className="text-sm font-medium text-blue-900">AI Response (English):</p>
+                        <Badge variant="outline" className="text-blue-700 border-blue-300">
+                          Original
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-blue-800 whitespace-pre-wrap">{response.answer}</p>
                     </div>
                   </div>
                 </div>
+
+                {/* Translation Toggle */}
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowTranslations(!showTranslations)}
+                    className="flex items-center space-x-2"
+                  >
+                    <Languages className="w-4 h-4" />
+                    <span>{showTranslations ? 'Hide' : 'Show'} Translations</span>
+                  </Button>
+                  {response.translations && (
+                    <Badge variant="secondary" className="text-green-700">
+                      {Object.keys(response.translations).length} languages available
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Translations */}
+                {showTranslations && response.translations && (
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-medium text-gray-900 flex items-center space-x-2">
+                      <Languages className="w-4 h-4" />
+                      <span>Translations:</span>
+                    </h4>
+                    
+                    {/* Kannada Translation */}
+                    {response.translations.kannada && (
+                      <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="flex items-start space-x-2">
+                          <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <p className="text-sm font-medium text-green-800">ಕನ್ನಡ (Kannada):</p>
+                              <Badge variant="outline" className="text-green-700 border-green-300">
+                                {(response.translations.kannada.confidence * 100).toFixed(1)}% confidence
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-green-700 whitespace-pre-wrap leading-relaxed">
+                              {response.translations.kannada.translatedText}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Hindi Translation */}
+                    {response.translations.hindi && (
+                      <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                        <div className="flex items-start space-x-2">
+                          <div className="w-2 h-2 bg-orange-500 rounded-full mt-2"></div>
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <p className="text-sm font-medium text-orange-800">हिंदी (Hindi):</p>
+                              <Badge variant="outline" className="text-orange-700 border-orange-300">
+                                {(response.translations.hindi.confidence * 100).toFixed(1)}% confidence
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-orange-700 whitespace-pre-wrap leading-relaxed">
+                              {response.translations.hindi.translatedText}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Response Metadata */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -279,49 +363,60 @@ export default function AITestPage() {
                     </div>
                   </div>
                 )}
+
+                {/* Scholarship Recommendations */}
+                {response.scholarshipRecommendations && response.scholarshipRecommendations.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-2">Recommended Scholarships:</p>
+                    <div className="space-y-3">
+                      {response.scholarshipRecommendations.map((rec, index) => (
+                        <div key={index} className="p-3 border border-green-200 rounded-lg bg-green-50">
+                          <div className="flex items-start justify-between mb-2">
+                            <h4 className="text-sm font-medium text-green-800">
+                              {rec.scholarship.name}
+                            </h4>
+                            <Badge variant="outline" className="text-green-700 border-green-300">
+                              {rec.matchScore.toFixed(0)}% Match
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-green-700 mb-2">{rec.scholarship.description}</p>
+                          <div className="text-xs text-green-600">
+                            <div className="flex items-center justify-between mb-1">
+                              <span>Amount:</span>
+                              <span className="font-medium">{rec.scholarship.amount}</span>
+                            </div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span>Source:</span>
+                              <span>{rec.scholarship.source}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Deadline:</span>
+                              <span>{new Date(rec.scholarship.deadline).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                          {rec.matchReasons.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-xs font-medium text-green-800 mb-1">Why this matches:</p>
+                              <ul className="text-xs text-green-700 space-y-1">
+                                {rec.matchReasons.slice(0, 2).map((reason, idx) => (
+                                  <li key={idx} className="flex items-start">
+                                    <span className="text-green-500 mr-1">•</span>
+                                    {reason}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </CardContent>
       </Card>
-
-      {/* Setup Instructions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Setup Instructions</CardTitle>
-          <CardDescription>
-            How to get Ollama and Llama models working
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4 text-sm">
-            <div>
-              <h4 className="font-medium mb-2">1. Install Ollama</h4>
-              <p className="text-gray-600">
-                Download and install Ollama from <a href="https://ollama.ai" className="text-blue-600 hover:underline">ollama.ai</a>
-              </p>
-            </div>
-            <div>
-              <h4 className="font-medium mb-2">2. Start Ollama</h4>
-              <p className="text-gray-600">
-                Run <code className="bg-gray-100 px-1 rounded">ollama serve</code> in your terminal
-              </p>
-            </div>
-            <div>
-              <h4 className="font-medium mb-2">3. Pull a Model</h4>
-              <p className="text-gray-600">
-                Run <code className="bg-gray-100 px-1 rounded">ollama pull llama3.2</code> to download the model
-              </p>
-            </div>
-            <div>
-              <h4 className="font-medium mb-2">4. Test</h4>
-              <p className="text-gray-600">
-                Refresh this page and check the Ollama status above
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
-} 
+}

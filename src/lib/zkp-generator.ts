@@ -5,7 +5,7 @@ export interface ZKPInput {
   claimType: string;
   studentAddress: string;
   issuerAddress: string;
-  credentialData: Record<string, string | number>;
+  credentialData: Record<string, string | number | boolean>;
 }
 
 export interface ZKPProof {
@@ -99,17 +99,27 @@ class ZKPGenerator {
         };
       }
 
-      // Step 2: Get or create credential group
+      // Step 2: Validate claim integrity
+      const integrityCheck = this.validateClaimIntegrity(input);
+      if (!integrityCheck.isValid) {
+        return {
+          proof: this.createEmptyProof(input),
+          isValid: false,
+          errorMessage: integrityCheck.errorMessage
+        };
+      }
+
+      // Step 3: Get or create credential group
       const group = await this.getOrCreateGroup(input.claimType);
       
-      // Step 3: Add student to group if not already present
+      // Step 4: Add student to group if not already present
       const studentId = this.hashStudentId(input.studentAddress, input.credentialId);
       await this.addMemberToGroup(group, studentId);
 
-      // Step 4: Generate nullifier
+      // Step 5: Generate nullifier
       const nullifier = this.generateNullifier(input);
 
-      // Step 5: Generate simplified ZKP
+      // Step 6: Generate simplified ZKP
       const proof = await this.generateSimplifiedProof(input, group, nullifier);
 
       return {
@@ -229,6 +239,111 @@ class ZKPGenerator {
     }
     
     return { isValid: true };
+  }
+
+  /**
+   * Validate that the claim is mathematically consistent
+   */
+  private validateClaimIntegrity(input: ZKPInput): { isValid: boolean; errorMessage?: string } {
+    const claimType = input.claimType.toLowerCase();
+    const credentialData = input.credentialData;
+
+    // Income threshold validation
+    if (claimType.includes('income') || claimType.includes('salary')) {
+      const actualIncome = this.extractNumericValue(credentialData.value || credentialData.income);
+      const threshold = this.extractThresholdFromClaim(claimType) || this.extractNumericValue(credentialData.threshold);
+      
+      if (actualIncome >= threshold) {
+        return {
+          isValid: false,
+          errorMessage: `Cannot prove income < ₹${threshold.toLocaleString()}. Your actual income (₹${actualIncome.toLocaleString()}) is above the threshold.`
+        };
+      }
+    }
+
+    // Marks threshold validation
+    if (claimType.includes('marks') || claimType.includes('percentage') || claimType.includes('grade')) {
+      const actualMarks = this.extractNumericValue(credentialData.value || credentialData.marks);
+      const threshold = this.extractThresholdFromClaim(claimType) || this.extractNumericValue(credentialData.threshold);
+      
+      if (actualMarks < threshold) {
+        return {
+          isValid: false,
+          errorMessage: `Cannot prove marks > ${threshold}%. Your actual marks (${actualMarks}%) are below the threshold.`
+        };
+      }
+    }
+
+    // Caste verification (should match exactly)
+    if (claimType.includes('caste')) {
+      const actualCaste = credentialData.value || credentialData.caste;
+      const claimedCaste = this.extractCasteFromClaim(claimType);
+      
+      if (actualCaste !== claimedCaste) {
+        return {
+          isValid: false,
+          errorMessage: `Cannot prove caste = ${claimedCaste}. Your actual caste is ${actualCaste}.`
+        };
+      }
+    }
+
+    // Disability status verification
+    if (claimType.includes('disability')) {
+      const hasDisability = credentialData.value === 'true' || credentialData.hasDisability === true;
+      const claimRequiresDisability = claimType.includes('has disability = yes');
+      
+      if (claimRequiresDisability && !hasDisability) {
+        return {
+          isValid: false,
+          errorMessage: 'Cannot prove disability status. You do not have a disability credential.'
+        };
+      }
+    }
+
+    return { isValid: true };
+  }
+
+  /**
+   * Extract numeric value from credential data
+   */
+  private extractNumericValue(value: string | number | boolean | undefined): number {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      // Remove currency symbols and commas
+      const cleanValue = value.replace(/[₹,]/g, '').replace(/%/g, '');
+      const num = parseFloat(cleanValue);
+      return isNaN(num) ? 0 : num;
+    }
+    if (typeof value === 'boolean') return value ? 1 : 0;
+    return 0;
+  }
+
+  /**
+   * Extract threshold value from claim type
+   */
+  private extractThresholdFromClaim(claimType: string): number {
+    // Extract numbers from claim type
+    const numbers = claimType.match(/\d+/g);
+    if (numbers && numbers.length > 0) {
+      return parseInt(numbers[0]);
+    }
+    
+    // Default thresholds
+    if (claimType.includes('income')) return 250000;
+    if (claimType.includes('marks')) return 75;
+    
+    return 0;
+  }
+
+  /**
+   * Extract caste from claim type
+   */
+  private extractCasteFromClaim(claimType: string): string {
+    if (claimType.includes('sc')) return 'SC';
+    if (claimType.includes('st')) return 'ST';
+    if (claimType.includes('obc')) return 'OBC';
+    if (claimType.includes('general')) return 'General';
+    return 'Unknown';
   }
 
   /**

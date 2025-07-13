@@ -24,23 +24,47 @@ export default function VerifierPage() {
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
 
   const sampleProof = `{
+  "claimType": "caste",
+  "studentAddress": "0x3c2b1a0d9e8f7c6b5a4d3e2f1c0b9a8d7e6f5c4b",
+  "issuerAddress": "0x1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f",
   "proof": {
-    "a": ["0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"],
-    "b": [["0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"], ["0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"]],
-    "c": ["0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"]
+    "a": [
+      "0xc6aaf7214e5e5c1d13f2b4a7f7828774740b902e611912ba86a0f8d32b232bc3",
+      "0x34f4e8e0f1d9204bff5d7936af722a35a515c375458f442d2e59ecb3748884b5"
+    ],
+    "b": [
+      [
+        "0x83610f6679236a07117f9d52c8fcc38fc2477849884ca719e0bb7a9efe48775c",
+        "0x9cbd9c0e6141b4969d42a3dc9600cedda3098c9c8ce8a8c170135ae806f3070d"
+      ],
+      [
+        "0x436d6adb66a8f611e5707cdbdbb891d96f6526c0e155fb95afb2a14e4484f2a9",
+        "0xe25f287b5671dd41c78ae6edb3e172916afd640f78c59e7e1e8707516be5c961"
+      ]
+    ],
+    "c": [
+      "0x5081b5a7dfa6bbbea976bcd856d524286f47e9d66ba7bf6e85f4dafdf58179bc",
+      "0x38bc46d7bb167f5ae7183dbfe993417c35bc89d2f3083bb2c633f22aa85bc6cc"
+    ]
   },
-  "publicSignals": {
-    "input": ["0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"],
-    "merkleTreeDepth": 20
-  },
-  "claimId": "income_lt_100k",
-  "timestamp": "2024-01-15T10:30:00.000Z"
+  "publicSignals": [
+    "0xeafe02b8a595d019fa7cd9e564bd009b88b8d76ba5a06c16d6757b27c9911a8e",
+    "0xf1a335476091715323ecd294e0972b46ddb672ff0bdc73859c8ca73a591f0cda",
+    "88962594580111843101890501849626951651677040589036480006579951475627937879424",
+    "0x3c2b1a0d9e8f7c6b5a4d3e2f1c0b9a8d7e6f5c4b",
+    "0x1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f"
+  ],
+  "merkleTreeDepth": 20,
+  "nullifier": "0xf1a335476091715323ecd294e0972b46ddb672ff0bdc73859c8ca73a591f0cda",
+  "timestamp": 1752321059857,
+  "groupId": "0x12738dffa9180fa3225bd70f37ab41784816ab27870ee88f12a6c165a45e0410"
 }`;
 
   const handleVerifyProof = async () => {
     if (!proofInput.trim()) return;
 
     setIsVerifying(true);
+    setVerificationResult(null); // Clear previous result
     
     try {
       // Import and validate the proof
@@ -56,27 +80,25 @@ export default function VerifierPage() {
       let blockchainResult = null;
       if (localVerification) {
         try {
-          const formattedProof = zkpGenerator.formatProofForBlockchain(importedProof);
-          // Add required fields for blockchain service
-          const blockchainProof = {
-            ...formattedProof,
-            credentialId: `proof-${Date.now()}`,
-            timestamp: Date.now()
-          };
-          blockchainResult = await blockchainService.verifyCredentialZKP(blockchainProof);
+          blockchainResult = await blockchainService.verifyCredentialOnChain(
+            importedProof.claimType,
+            importedProof.studentAddress,
+            importedProof.issuerAddress,
+            importedProof
+          );
         } catch (blockchainError) {
           console.warn("Blockchain verification failed, using local result:", blockchainError);
         }
       }
       
       // Determine final result
-      const isValid = localVerification && (!blockchainResult || blockchainResult.isValid);
+      const isValid = localVerification && (!blockchainResult || blockchainResult.success);
       
       const result: VerificationResult = {
         isValid,
         message: isValid 
-          ? `Proof is valid and verified successfully! ${blockchainResult ? `Issuer: ${blockchainResult.issuerName}` : 'Locally verified'}`
-          : `Proof verification failed: ${blockchainResult?.errorMessage || 'Local verification failed'}`,
+          ? `Proof is valid and verified successfully! ${blockchainResult?.transactionHash ? `Transaction: ${blockchainResult.transactionHash}` : 'Locally verified'}`
+          : `Proof verification failed: ${blockchainResult?.error || 'Local verification failed'}`,
         details: isValid ? {
           claimType: importedProof.claimType,
           verifiedAt: new Date().toISOString(),
@@ -86,13 +108,13 @@ export default function VerifierPage() {
       
       setVerificationResult(result);
       
-          } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Error during verification. Please check the proof format.";
-        setVerificationResult({
-          isValid: false,
-          message: errorMessage
-        });
-      } finally {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Error during verification. Please check the proof format.";
+      setVerificationResult({
+        isValid: false,
+        message: errorMessage
+      });
+    } finally {
       setIsVerifying(false);
     }
   };
@@ -137,7 +159,10 @@ export default function VerifierPage() {
                 </label>
                 <Textarea
                   value={proofInput}
-                  onChange={(e) => setProofInput(e.target.value)}
+                  onChange={(e) => {
+                    setProofInput(e.target.value);
+                    setVerificationResult(null); // Clear status on input change
+                  }}
                   placeholder="Paste your ZKP proof JSON here..."
                   className="min-h-[300px] font-mono text-sm"
                 />
@@ -175,144 +200,112 @@ export default function VerifierPage() {
                   "Submit for Verification"
                 )}
               </Button>
-            </CardContent>
-          </Card>
 
-          {/* Instructions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>How to Use</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3 text-sm text-gray-600">
-                <div className="flex items-start space-x-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                  <p>Copy your generated ZKP proof from the ZKP Generator page</p>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                  <p>Paste the JSON proof in the text area above</p>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                  <p>Click "Submit for Verification" to validate the proof</p>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                  <p>View the verification result on the right</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Column - Verification Result */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Verification Result</CardTitle>
-              <CardDescription>
-                The result of your proof verification will appear here
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {verificationResult ? (
-                <div className="space-y-4">
-                  {/* Status Badge */}
-                  <div className="flex items-center space-x-3">
-                    <Badge 
-                      variant={verificationResult.isValid ? "default" : "destructive"}
-                      className="text-sm px-3 py-1"
-                    >
-                      {verificationResult.isValid ? "✅ Valid" : "❌ Invalid"}
-                    </Badge>
-                    <span className="text-sm text-gray-600">
-                      {new Date().toLocaleString()}
-                    </span>
+              {/* Verification Result Display */}
+              {verificationResult && (
+                <div className={`mt-4 p-4 rounded-lg border ${
+                  verificationResult.isValid 
+                    ? 'bg-green-50 border-green-200 text-green-800' 
+                    : 'bg-red-50 border-red-200 text-red-800'
+                }`}>
+                  <div className="flex items-center space-x-2 mb-2">
+                    <div className="font-bold text-lg">
+                      {verificationResult.isValid ? '✅ Verification Successful' : '❌ Verification Failed'}
+                    </div>
                   </div>
-
-                  {/* Message */}
-                  <div className={`p-4 rounded-lg ${
-                    verificationResult.isValid 
-                      ? 'bg-green-50 border border-green-200' 
-                      : 'bg-red-50 border border-red-200'
-                  }`}>
-                    <p className={`font-medium ${
-                      verificationResult.isValid ? 'text-green-800' : 'text-red-800'
-                    }`}>
-                      {verificationResult.message}
-                    </p>
-                  </div>
-
-                  {/* Details */}
+                  <div className="text-sm mb-3">{verificationResult.message}</div>
                   {verificationResult.details && (
-                    <div className="space-y-3">
-                      <h4 className="font-semibold text-gray-900">Verification Details</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Claim Type:</span>
-                          <span className="font-medium">{verificationResult.details.claimType}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Verified At:</span>
-                          <span className="font-medium">
-                            {new Date(verificationResult.details.verifiedAt).toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Proof Hash:</span>
-                          <span className="font-mono text-xs">
-                            {verificationResult.details.proofHash.substring(0, 20)}...
-                          </span>
-                        </div>
+                    <div className="mt-3 pt-3 border-t border-gray-200 text-xs text-gray-600">
+                      <div className="grid grid-cols-1 gap-1">
+                        <div><span className="font-medium">Claim Type:</span> {verificationResult.details.claimType}</div>
+                        <div><span className="font-medium">Verified At:</span> {new Date(verificationResult.details.verifiedAt).toLocaleString()}</div>
+                        <div><span className="font-medium">Proof Hash:</span> <span className="font-mono">{verificationResult.details.proofHash.slice(0, 20)}...</span></div>
                       </div>
                     </div>
                   )}
-
-                  {/* Actions */}
-                  <div className="flex space-x-3 pt-4">
-                    <Button 
-                      onClick={() => setVerificationResult(null)}
-                      variant="outline"
-                      className="flex-1"
-                    >
-                      Verify Another
-                    </Button>
-                    {verificationResult.isValid && (
-                      <Button className="flex-1">
-                        Download Certificate
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12 text-gray-500">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <p>Submit a proof to see the verification result here</p>
                 </div>
               )}
             </CardContent>
           </Card>
+        </div>
 
-          {/* Verification Stats */}
+        {/* Right Column - Instructions */}
+        <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Verification Statistics</CardTitle>
+              <CardTitle>How to Use</CardTitle>
+              <CardDescription>
+                Follow these steps to verify a Zero-Knowledge Proof
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-4 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">0</div>
-                  <div className="text-sm text-gray-600">Proofs Verified</div>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-start space-x-3">
+                  <Badge variant="secondary" className="mt-1">1</Badge>
+                  <div>
+                    <h4 className="font-medium">Prepare Your Proof</h4>
+                    <p className="text-sm text-gray-600">
+                      Generate a ZKP using the ZKP Generator or obtain one from a trusted source.
+                    </p>
+                  </div>
                 </div>
-                <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">0</div>
-                  <div className="text-sm text-gray-600">Valid Proofs</div>
+                
+                <div className="flex items-start space-x-3">
+                  <Badge variant="secondary" className="mt-1">2</Badge>
+                  <div>
+                    <h4 className="font-medium">Paste the Proof</h4>
+                    <p className="text-sm text-gray-600">
+                      Copy and paste the complete JSON proof into the text area on the left.
+                    </p>
+                  </div>
                 </div>
+                
+                <div className="flex items-start space-x-3">
+                  <Badge variant="secondary" className="mt-1">3</Badge>
+                  <div>
+                    <h4 className="font-medium">Submit for Verification</h4>
+                    <p className="text-sm text-gray-600">
+                      Click the &quot;Submit for Verification&quot; button to verify the proof.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-3">
+                  <Badge variant="secondary" className="mt-1">4</Badge>
+                  <div>
+                    <h4 className="font-medium">Review Results</h4>
+                    <p className="text-sm text-gray-600">
+                      Check the verification result below the submit button. The proof will be verified both locally and on the blockchain.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>What Gets Verified</CardTitle>
+              <CardDescription>
+                The verification process checks several aspects of your proof
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <span className="text-sm">Proof mathematical validity</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <span className="text-sm">Nullifier uniqueness (prevents double-spending)</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <span className="text-sm">Issuer trust verification</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <span className="text-sm">Blockchain state consistency</span>
               </div>
             </CardContent>
           </Card>

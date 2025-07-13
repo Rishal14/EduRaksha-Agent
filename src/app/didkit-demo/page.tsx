@@ -1,517 +1,255 @@
 "use client";
-import { useState, useEffect } from "react";
+
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+// import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { didkitService } from "@/lib/didkit-service";
+import { CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
-interface WalletInfo {
-  address: string;
-  did: string;
-  privateKey: string;
+interface Credential {
+  id: string;
+  type: string[];
+  issuer: string;
+  issuanceDate: string;
+  credentialSubject: Record<string, unknown>;
+  proof?: {
+    type: string;
+    created: string;
+    verificationMethod: string;
+    proofPurpose: string;
+    proofValue: string;
+  };
 }
 
-interface CredentialRecord {
-  id: string;
-  credential: {
-    "@context": string[];
-    id: string;
-    type: string[];
-    issuer: {
-      id: string;
-      name: string;
-    };
-    issuanceDate: string;
-    expirationDate?: string;
-    credentialSubject: {
-      id: string;
-      [key: string]: unknown;
-    };
-  };
-  jwt: string;
-  storedAt: string;
-  status: 'active';
+interface VerificationResult {
+  verified: boolean;
+  errors?: string[];
+  warnings?: string[];
 }
 
 export default function DIDKitDemoPage() {
-  const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
-  const [storedCredentials, setStoredCredentials] = useState<CredentialRecord[]>([]);
-  const [issuerInfo, setIssuerInfo] = useState<any>(null);
-  
-  // Issuance state
-  const [issuanceForm, setIssuanceForm] = useState({
-    subjectDid: "",
-    credentialType: "EducationalCredential",
-    credentialSubject: "",
-    expirationDate: ""
-  });
-  const [issuedCredential, setIssuedCredential] = useState<any>(null);
-  const [issuanceLoading, setIssuanceLoading] = useState(false);
-  const [issuanceError, setIssuanceError] = useState("");
+  const [credential, setCredential] = useState<string>("");
+  const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [parsedCredential, setParsedCredential] = useState<Credential | null>(null);
 
-  // Verification state
-  const [verificationJwt, setVerificationJwt] = useState("");
-  const [verificationResult, setVerificationResult] = useState<any>(null);
-  const [verificationLoading, setVerificationLoading] = useState(false);
-  const [verificationError, setVerificationError] = useState("");
-
-  // Import state
-  const [importJson, setImportJson] = useState("");
-  const [importLoading, setImportLoading] = useState(false);
-  const [importError, setImportError] = useState("");
-
-  const credentialTypes = [
-    "EducationalCredential",
-    "IncomeCredential", 
-    "CasteCredential",
-    "DisabilityCredential",
-    "RegionCredential"
-  ];
-
-  useEffect(() => {
-    loadStoredCredentials();
-    loadIssuerInfo();
-  }, []);
-
-  const loadStoredCredentials = () => {
-    const credentials = didkitService.getStoredCredentials();
-    setStoredCredentials(credentials);
-  };
-
-  const loadIssuerInfo = async () => {
-    try {
-      const info = await didkitService.getIssuerInfo();
-      setIssuerInfo(info);
-    } catch (error) {
-      console.error('Failed to load issuer info:', error);
+  const sampleCredential = {
+    "@context": [
+      "https://www.w3.org/2018/credentials/v1",
+      "https://www.w3.org/2018/credentials/examples/v1"
+    ],
+    "id": "http://example.edu/credentials/3732",
+    "type": ["VerifiableCredential", "UniversityDegreeCredential"],
+    "issuer": "https://example.edu/issuers/565049",
+    "issuanceDate": "2010-01-01T19:23:24Z",
+    "credentialSubject": {
+      "id": "did:example:ebfeb1f712ebc6f1c276e12ec21",
+      "degree": {
+        "type": "BachelorDegree",
+        "name": "Bachelor of Science and Arts"
+      }
+    },
+    "proof": {
+      "type": "Ed25519Signature2018",
+      "created": "2017-06-18T21:19:10Z",
+      "verificationMethod": "https://example.edu/issuers/565049#key-1",
+      "proofPurpose": "assertionMethod",
+      "proofValue": "z58DAdFfa9SkqZMVPxAQpic7ndSayn1PzZs6ZjWp1CktyGesjuTSwRdoWhAfGFCF5bppETSTojQCrfFPP2oumHKtz"
     }
   };
 
-  const handleSetupWallet = async () => {
-    try {
-      const wallet = await didkitService.setupWallet();
-      setWalletInfo(wallet);
-    } catch (error) {
-      console.error('Failed to setup wallet:', error);
+  const handleVerify = async () => {
+    if (!credential.trim()) {
+      toast.error("Please enter a credential to verify");
+      return;
     }
-  };
 
-  const handleIssueCredential = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIssuanceLoading(true);
-    setIssuanceError("");
-    setIssuedCredential(null);
-
-    try {
-      // Parse credential subject
-      const parsedSubject = issuanceForm.credentialSubject ? 
-        JSON.parse(issuanceForm.credentialSubject) : {};
-
-      const result = await didkitService.issueCredential({
-        subjectDid: issuanceForm.subjectDid,
-        credentialType: issuanceForm.credentialType,
-        credentialSubject: parsedSubject,
-        expirationDate: issuanceForm.expirationDate || undefined
-      });
-
-      setIssuedCredential(result);
-      
-      // Store the credential
-      didkitService.storeCredential(result.credential, result.jwt);
-      loadStoredCredentials();
-      
-      // Reset form
-      setIssuanceForm({
-        subjectDid: "",
-        credentialType: "EducationalCredential",
-        credentialSubject: "",
-        expirationDate: ""
-      });
-    } catch (error) {
-      setIssuanceError(error instanceof Error ? error.message : "Unknown error");
-    } finally {
-      setIssuanceLoading(false);
-    }
-  };
-
-  const handleVerifyCredential = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setVerificationLoading(true);
-    setVerificationError("");
+    setIsVerifying(true);
     setVerificationResult(null);
 
     try {
-      const result = await didkitService.verifyCredential(verificationJwt);
-      setVerificationResult(result);
+      // Parse the credential first
+      const parsed = JSON.parse(credential);
+      setParsedCredential(parsed);
+
+      // Mock verification - in a real implementation, this would use DIDKit
+      const mockVerification: VerificationResult = {
+        verified: true,
+        warnings: ["Mock verification - DIDKit not configured"]
+      };
+
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      setVerificationResult(mockVerification);
+      toast.success("Verification completed");
     } catch (error) {
-      setVerificationError(error instanceof Error ? error.message : "Unknown error");
+      const errorMessage = error instanceof Error ? error.message : "Invalid JSON";
+      setVerificationResult({
+        verified: false,
+        errors: [errorMessage]
+      });
+      toast.error("Verification failed");
     } finally {
-      setVerificationLoading(false);
+      setIsVerifying(false);
     }
   };
 
-  const handleImportCredential = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setImportLoading(true);
-    setImportError("");
-
-    try {
-      const result = didkitService.importCredential(importJson);
-      setImportJson("");
-      loadStoredCredentials();
-    } catch (error) {
-      setImportError(error instanceof Error ? error.message : "Unknown error");
-    } finally {
-      setImportLoading(false);
-    }
+  const loadSample = () => {
+    setCredential(JSON.stringify(sampleCredential, null, 2));
+    setParsedCredential(null);
+    setVerificationResult(null);
   };
 
-  const handleExportCredential = (credentialId: string) => {
-    const exported = didkitService.exportCredential(credentialId);
-    if (exported) {
-      const blob = new Blob([exported], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `credential-${credentialId}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-  };
-
-  const handleRemoveCredential = (credentialId: string) => {
-    didkitService.removeCredential(credentialId);
-    loadStoredCredentials();
-  };
-
-  const getStatusColor = (isValid: boolean) => {
-    return isValid ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800";
+  const clearAll = () => {
+    setCredential("");
+    setParsedCredential(null);
+    setVerificationResult(null);
   };
 
   return (
-    <div className="container mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">DIDKit VC Demo</h1>
-      
-      {/* Wallet Setup */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Wallet Setup</CardTitle>
-          <CardDescription>
-            Set up your DID wallet for credential management
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {!walletInfo ? (
-            <Button onClick={handleSetupWallet}>
-              Setup Wallet
-            </Button>
-          ) : (
-            <div className="space-y-2">
-              <div><strong>Address:</strong> {walletInfo.address}</div>
-              <div><strong>DID:</strong> {walletInfo.did}</div>
-              <div><strong>Private Key:</strong> {walletInfo.privateKey.substring(0, 20)}...</div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+    <div className="container mx-auto p-6 max-w-4xl">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold mb-2">DIDKit Verification Demo</h1>
+        <p className="text-muted-foreground">
+          Test verifiable credential verification using DIDKit
+        </p>
+      </div>
 
-      {/* Issuer Info */}
-      {issuerInfo && (
-        <Card className="mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
           <CardHeader>
-            <CardTitle>Issuer Information</CardTitle>
+            <CardTitle>Input Credential</CardTitle>
+            <CardDescription>
+              Paste a verifiable credential in JSON format
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div><strong>Issuer DID:</strong> {issuerInfo.did}</div>
-              <div><strong>Issuer Address:</strong> {issuerInfo.address}</div>
-              <div><strong>Issuer Name:</strong> {issuerInfo.name}</div>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <Button onClick={loadSample} variant="outline" size="sm">
+                Load Sample
+              </Button>
+              <Button onClick={clearAll} variant="outline" size="sm">
+                Clear
+              </Button>
             </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="credential">Credential JSON</Label>
+              <Textarea
+                id="credential"
+                value={credential}
+                onChange={(e) => setCredential(e.target.value)}
+                placeholder="Paste your verifiable credential here..."
+                className="min-h-[300px] font-mono text-sm"
+              />
+            </div>
+
+            <Button 
+              onClick={handleVerify} 
+              disabled={isVerifying || !credential.trim()}
+              className="w-full"
+            >
+              {isVerifying ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Verifying...
+                </>
+              ) : (
+                "Verify Credential"
+              )}
+            </Button>
           </CardContent>
         </Card>
-      )}
 
-      <Tabs defaultValue="issue" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="issue">Issue Credential</TabsTrigger>
-          <TabsTrigger value="verify">Verify Credential</TabsTrigger>
-          <TabsTrigger value="import">Import Credential</TabsTrigger>
-          <TabsTrigger value="wallet">My Wallet</TabsTrigger>
-        </TabsList>
-
-        {/* Issue Credential Tab */}
-        <TabsContent value="issue">
-          <Card>
-            <CardHeader>
-              <CardTitle>Issue Verifiable Credential</CardTitle>
-              <CardDescription>
-                Issue a new verifiable credential using DIDKit
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleIssueCredential} className="space-y-4">
+        <div className="space-y-6">
+          {parsedCredential && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Parsed Credential</CardTitle>
+                <CardDescription>Credential details</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
                 <div>
-                  <Label htmlFor="subjectDid">Subject DID</Label>
-                  <Input
-                    id="subjectDid"
-                    value={issuanceForm.subjectDid}
-                    onChange={(e) => setIssuanceForm({...issuanceForm, subjectDid: e.target.value})}
-                    placeholder="did:ethr:0x..."
-                    required
-                  />
+                  <Label className="text-sm font-medium">ID</Label>
+                  <p className="text-sm text-muted-foreground break-all">
+                    {parsedCredential.id}
+                  </p>
                 </div>
-                
                 <div>
-                  <Label htmlFor="credentialType">Credential Type</Label>
-                  <Select 
-                    value={issuanceForm.credentialType} 
-                    onValueChange={(value) => setIssuanceForm({...issuanceForm, credentialType: value})}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select credential type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {credentialTypes.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {type}
-                        </SelectItem>
+                  <Label className="text-sm font-medium">Type</Label>
+                  <div className="flex gap-1 mt-1">
+                    {parsedCredential.type.map((type: string, index: number) => (
+                      <Badge key={index} variant="secondary">
+                        {type}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Issuer</Label>
+                  <p className="text-sm text-muted-foreground break-all">
+                    {parsedCredential.issuer}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Issuance Date</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {new Date(parsedCredential.issuanceDate).toLocaleString()}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {verificationResult && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  {verificationResult.verified ? (
+                    <>
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      Verification Successful
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-5 w-5 text-red-600" />
+                      Verification Failed
+                    </>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {verificationResult.errors && verificationResult.errors.length > 0 && (
+                  <div className="mb-4">
+                    <Label className="text-sm font-medium text-red-600">Errors</Label>
+                    <ul className="text-sm text-red-600 mt-1">
+                      {verificationResult.errors.map((error, index) => (
+                        <li key={index}>• {error}</li>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div>
-                  <Label htmlFor="credentialSubject">Credential Subject (JSON)</Label>
-                  <Textarea
-                    id="credentialSubject"
-                    value={issuanceForm.credentialSubject}
-                    onChange={(e) => setIssuanceForm({...issuanceForm, credentialSubject: e.target.value})}
-                    placeholder='{"marks": "88%", "subject": "Class 12 Board Results"}'
-                    rows={4}
-                  />
-                </div>
-                
-                <div>
-                  <Label htmlFor="expirationDate">Expiration Date (Optional)</Label>
-                  <Input
-                    id="expirationDate"
-                    type="datetime-local"
-                    value={issuanceForm.expirationDate}
-                    onChange={(e) => setIssuanceForm({...issuanceForm, expirationDate: e.target.value})}
-                  />
-                </div>
-                
-                <Button type="submit" disabled={issuanceLoading}>
-                  {issuanceLoading ? "Issuing..." : "Issue Credential"}
-                </Button>
-              </form>
-
-              {issuanceError && (
-                <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-                  {issuanceError}
-                </div>
-              )}
-
-              {issuedCredential && (
-                <div className="mt-6 space-y-4">
-                  <h3 className="font-semibold">Issued Credential</h3>
-                  <div className="space-y-2">
-                    <div><strong>Credential ID:</strong> {issuedCredential.credential.id}</div>
-                    <div><strong>Type:</strong> {issuedCredential.credential.type.join(", ")}</div>
-                    <div><strong>Subject:</strong> {issuedCredential.credential.credentialSubject.id}</div>
-                    <div><strong>Issuer:</strong> {issuedCredential.credential.issuer.name}</div>
+                    </ul>
                   </div>
+                )}
+                
+                {verificationResult.warnings && verificationResult.warnings.length > 0 && (
                   <div>
-                    <strong>JWT:</strong>
-                    <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto mt-1">
-                      {issuedCredential.jwt}
-                    </pre>
+                    <Label className="text-sm font-medium text-yellow-600">Warnings</Label>
+                    <ul className="text-sm text-yellow-600 mt-1">
+                      {verificationResult.warnings.map((warning, index) => (
+                        <li key={index}>• {warning}</li>
+                      ))}
+                    </ul>
                   </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Verify Credential Tab */}
-        <TabsContent value="verify">
-          <Card>
-            <CardHeader>
-              <CardTitle>Verify Verifiable Credential</CardTitle>
-              <CardDescription>
-                Verify a verifiable credential JWT
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleVerifyCredential} className="space-y-4">
-                <div>
-                  <Label htmlFor="verificationJwt">JWT Token</Label>
-                  <Textarea
-                    id="verificationJwt"
-                    value={verificationJwt}
-                    onChange={(e) => setVerificationJwt(e.target.value)}
-                    placeholder="eyJhbGciOiJFUzI1NksiLCJ0eXAiOiJKV1QifQ..."
-                    rows={6}
-                    required
-                  />
-                </div>
-                
-                <Button type="submit" disabled={verificationLoading}>
-                  {verificationLoading ? "Verifying..." : "Verify Credential"}
-                </Button>
-              </form>
-
-              {verificationError && (
-                <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-                  {verificationError}
-                </div>
-              )}
-
-              {verificationResult && (
-                <div className="mt-6 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold">Verification Result</h3>
-                    <Badge className={getStatusColor(verificationResult.isValid)}>
-                      {verificationResult.isValid ? "Valid" : "Invalid"}
-                    </Badge>
-                  </div>
-                  
-                  {verificationResult.credential && (
-                    <div className="space-y-2">
-                      <div><strong>Credential ID:</strong> {verificationResult.credential.id}</div>
-                      <div><strong>Type:</strong> {verificationResult.credential.type.join(", ")}</div>
-                      <div><strong>Subject:</strong> {verificationResult.credential.credentialSubject.id}</div>
-                      <div><strong>Issuer:</strong> {verificationResult.credential.issuer.name}</div>
-                      <div><strong>Issuance Date:</strong> {new Date(verificationResult.credential.issuanceDate).toLocaleString()}</div>
-                      {verificationResult.credential.expirationDate && (
-                        <div><strong>Expiration Date:</strong> {new Date(verificationResult.credential.expirationDate).toLocaleString()}</div>
-                      )}
-                    </div>
-                  )}
-
-                  {verificationResult.errors.length > 0 && (
-                    <div>
-                      <strong className="text-red-600">Errors:</strong>
-                      <ul className="list-disc list-inside text-red-600">
-                        {verificationResult.errors.map((error: string, index: number) => (
-                          <li key={index}>{error}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Import Credential Tab */}
-        <TabsContent value="import">
-          <Card>
-            <CardHeader>
-              <CardTitle>Import Credential</CardTitle>
-              <CardDescription>
-                Import a credential from JSON format
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleImportCredential} className="space-y-4">
-                <div>
-                  <Label htmlFor="importJson">Credential JSON</Label>
-                  <Textarea
-                    id="importJson"
-                    value={importJson}
-                    onChange={(e) => setImportJson(e.target.value)}
-                    placeholder='{"credential": {...}, "jwt": "..."}'
-                    rows={8}
-                    required
-                  />
-                </div>
-                
-                <Button type="submit" disabled={importLoading}>
-                  {importLoading ? "Importing..." : "Import Credential"}
-                </Button>
-              </form>
-
-              {importError && (
-                <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-                  {importError}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* My Wallet Tab */}
-        <TabsContent value="wallet">
-          <Card>
-            <CardHeader>
-              <CardTitle>My Credential Wallet</CardTitle>
-              <CardDescription>
-                Manage your stored verifiable credentials
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {storedCredentials.length === 0 ? (
-                <p className="text-gray-500">No credentials stored in wallet</p>
-              ) : (
-                <div className="space-y-4">
-                  {storedCredentials.map((credential) => (
-                    <Card key={credential.id} className="border">
-                      <CardContent className="pt-4">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <h4 className="font-semibold">{credential.credential.type[1]}</h4>
-                            <p className="text-sm text-gray-600">ID: {credential.credential.id}</p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => handleExportCredential(credential.id)}
-                            >
-                              Export
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="destructive"
-                              onClick={() => handleRemoveCredential(credential.id)}
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-1 text-sm">
-                          <div><strong>Subject:</strong> {credential.credential.credentialSubject.id}</div>
-                          <div><strong>Issuer:</strong> {credential.credential.issuer.name}</div>
-                          <div><strong>Issued:</strong> {new Date(credential.credential.issuanceDate).toLocaleDateString()}</div>
-                          {credential.credential.expirationDate && (
-                            <div><strong>Expires:</strong> {new Date(credential.credential.expirationDate).toLocaleDateString()}</div>
-                          )}
-                          <div><strong>Stored:</strong> {new Date(credential.storedAt).toLocaleDateString()}</div>
-                        </div>
-
-                        <details className="mt-2">
-                          <summary className="cursor-pointer text-sm text-blue-600">Show JWT</summary>
-                          <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto mt-1">
-                            {credential.jwt}
-                          </pre>
-                        </details>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 } 

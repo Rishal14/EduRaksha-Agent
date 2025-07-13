@@ -14,7 +14,7 @@ export interface VerifiableCredential {
   };
   issuanceDate: string;
   expirationDate?: string;
-  credentialSubject: Record<string, string | number>;
+  credentialSubject: Record<string, string | number | undefined>;
   proof: {
     type: string;
     created: string;
@@ -23,6 +23,7 @@ export interface VerifiableCredential {
     jws: string;
   };
   status: 'active' | 'revoked' | 'expired';
+  isSelfIssued: boolean; // New field to identify self-issued credentials
 }
 
 export interface WalletInfo {
@@ -51,7 +52,18 @@ class SSIWallet {
   constructor() {
     this.credentials = new Map();
     this.encryptionKey = this.generateEncryptionKey();
-    
+    // Load credentials from localStorage if available
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('ssi-wallet-credentials');
+      if (stored) {
+        try {
+          const creds: VerifiableCredential[] = JSON.parse(stored);
+          creds.forEach(cred => this.credentials.set(cred.id, cred));
+        } catch {
+          // ignore parse errors
+        }
+      }
+    }
     // Initialize with demo wallet info
     this.walletInfo = {
       address: "0x1234567890123456789012345678901234567890",
@@ -59,8 +71,14 @@ class SSIWallet {
       email: "student@example.com",
       phone: "+91 98765 43210",
       securityLevel: "enhanced",
-      credentialCount: 0
+      credentialCount: this.credentials.size
     };
+  }
+
+  private persistCredentials() {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ssi-wallet-credentials', JSON.stringify(Array.from(this.credentials.values())));
+    }
   }
 
   /**
@@ -81,7 +99,64 @@ class SSIWallet {
   }
 
   /**
-   * Add a new verifiable credential to the wallet
+   * Create a self-issued credential (student creates their own VC)
+   */
+  async createSelfIssuedCredential(
+    type: string,
+    credentialData: Record<string, string | number>,
+    studentName: string,
+    expirationDate?: string
+  ): Promise<string> {
+    try {
+      // Generate unique ID for the credential
+      const id = `vc:self:${this.walletInfo.address}:${Date.now()}`;
+      
+      // Create the credential with student as both issuer and subject
+      const credential: Omit<VerifiableCredential, 'id' | 'proof'> = {
+        type,
+        issuer: {
+          id: `did:ethr:${this.walletInfo.address}`,
+          name: studentName,
+          ensDomain: `${studentName.toLowerCase().replace(/\s+/g, '')}.eth`
+        },
+        subject: {
+          id: `did:ethr:${this.walletInfo.address}`,
+          name: studentName
+        },
+        issuanceDate: new Date().toISOString(),
+        expirationDate: expirationDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year default
+        credentialSubject: credentialData,
+        status: 'active',
+        isSelfIssued: true
+      };
+      
+      // Create proof for the credential
+      const proof = await this.createCredentialProof(credential);
+      
+      // Create the complete credential
+      const completeCredential: VerifiableCredential = {
+        ...credential,
+        id,
+        proof,
+        isSelfIssued: true
+      };
+
+      // Store the credential
+      this.credentials.set(id, completeCredential);
+      
+      // Update wallet info
+      this.walletInfo.credentialCount = this.credentials.size;
+      this.persistCredentials();
+      
+      return id;
+    } catch (error) {
+      console.error('Error creating self-issued credential:', error);
+      throw new Error('Failed to create self-issued credential');
+    }
+  }
+
+  /**
+   * Add a new verifiable credential to the wallet (for external credentials)
    */
   async addCredential(credential: Omit<VerifiableCredential, 'id' | 'proof'>): Promise<string> {
     try {
@@ -96,7 +171,8 @@ class SSIWallet {
         ...credential,
         id,
         proof,
-        status: 'active'
+        status: 'active',
+        isSelfIssued: false
       };
 
       // Store the credential
@@ -104,6 +180,7 @@ class SSIWallet {
       
       // Update wallet info
       this.walletInfo.credentialCount = this.credentials.size;
+      this.persistCredentials();
       
       return id;
     } catch (error) {
@@ -113,9 +190,55 @@ class SSIWallet {
   }
 
   /**
+   * Add a comprehensive verifiable credential from certificate processing
+   */
+  async addComprehensiveCredential(comprehensiveVC: Record<string, unknown>): Promise<string> {
+    try {
+      console.log("Adding comprehensive credential:", comprehensiveVC);
+      
+      // Convert comprehensive VC to wallet format
+      const walletCredential: VerifiableCredential = {
+        id: comprehensiveVC.id as string,
+        type: Array.isArray(comprehensiveVC.type) ? (comprehensiveVC.type as string[])[1] || (comprehensiveVC.type as string[])[0] : comprehensiveVC.type as string,
+        issuer: {
+          id: (comprehensiveVC.issuer as Record<string, unknown>).id as string,
+          name: (comprehensiveVC.issuer as Record<string, unknown>).name as string,
+          ensDomain: (comprehensiveVC.issuer as Record<string, unknown>).ensDomain as string || undefined
+        },
+        subject: {
+          id: (comprehensiveVC.credentialSubject as Record<string, unknown>).id as string,
+          name: (comprehensiveVC.credentialSubject as Record<string, unknown>).studentName as string
+        },
+        issuanceDate: comprehensiveVC.issuanceDate as string,
+        expirationDate: comprehensiveVC.expirationDate as string,
+        credentialSubject: comprehensiveVC.credentialSubject as Record<string, string | number | undefined>,
+        proof: comprehensiveVC.proof as VerifiableCredential['proof'],
+        status: 'active',
+        isSelfIssued: true
+      };
+
+      console.log("Created wallet credential:", walletCredential);
+
+      // Store the credential
+      this.credentials.set(comprehensiveVC.id as string, walletCredential);
+      
+      // Update wallet info
+      this.walletInfo.credentialCount = this.credentials.size;
+      this.persistCredentials();
+      
+      console.log("Credential stored. Total credentials:", this.credentials.size);
+      
+      return comprehensiveVC.id as string;
+    } catch (error) {
+      console.error('Error adding comprehensive credential:', error);
+      throw new Error('Failed to add comprehensive credential to wallet');
+    }
+  }
+
+  /**
    * Create a cryptographic proof for a credential
    */
-  private async createCredentialProof(credential: any): Promise<VerifiableCredential['proof']> {
+  private async createCredentialProof(credential: Omit<VerifiableCredential, 'id' | 'proof'>): Promise<VerifiableCredential['proof']> {
     // In a real implementation, this would use proper cryptographic signing
     const credentialHash = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(credential)));
     
@@ -132,7 +255,23 @@ class SSIWallet {
    * Get all credentials in the wallet
    */
   getAllCredentials(): VerifiableCredential[] {
-    return Array.from(this.credentials.values());
+    const creds = Array.from(this.credentials.values());
+    console.log("Getting all credentials:", creds.length, creds);
+    return creds;
+  }
+
+  /**
+   * Get self-issued credentials only
+   */
+  getSelfIssuedCredentials(): VerifiableCredential[] {
+    return Array.from(this.credentials.values()).filter(cred => cred.isSelfIssued);
+  }
+
+  /**
+   * Get external credentials only
+   */
+  getExternalCredentials(): VerifiableCredential[] {
+    return Array.from(this.credentials.values()).filter(cred => !cred.isSelfIssued);
   }
 
   /**
@@ -171,6 +310,7 @@ class SSIWallet {
 
     credential.status = 'revoked';
     this.credentials.set(id, credential);
+    this.persistCredentials();
     return true;
   }
 
@@ -185,6 +325,7 @@ class SSIWallet {
 
     credential.status = status;
     this.credentials.set(id, credential);
+    this.persistCredentials();
     return true;
   }
 
@@ -220,6 +361,7 @@ class SSIWallet {
       // Add to wallet
       this.credentials.set(credential.id, credential);
       this.walletInfo.credentialCount = this.credentials.size;
+      this.persistCredentials();
 
       return credential.id;
     } catch (error) {
@@ -231,15 +373,16 @@ class SSIWallet {
   /**
    * Validate a credential format
    */
-  private validateCredential(credential: any): credential is VerifiableCredential {
+  private validateCredential(credential: unknown): credential is VerifiableCredential {
     return (
-      credential &&
-      typeof credential.id === 'string' &&
-      typeof credential.type === 'string' &&
-      credential.issuer &&
-      credential.subject &&
-      credential.credentialSubject &&
-      credential.proof
+      credential !== null &&
+      typeof credential === 'object' &&
+      'id' in credential &&
+      'type' in credential &&
+      'issuer' in credential &&
+      'subject' in credential &&
+      'credentialSubject' in credential &&
+      'proof' in credential
     );
   }
 
@@ -347,7 +490,7 @@ class SSIWallet {
         credential.issuer.name.toLowerCase().includes(searchTerm) ||
         credential.subject.name.toLowerCase().includes(searchTerm) ||
         Object.values(credential.credentialSubject).some(value => 
-          value.toString().toLowerCase().includes(searchTerm)
+          value?.toString().toLowerCase().includes(searchTerm)
         )
       );
     });
@@ -414,6 +557,7 @@ class SSIWallet {
 
 // Create singleton instance
 export const ssiWallet = new SSIWallet();
+export default ssiWallet;
 
 // Initialize with some demo credentials
 export const initializeDemoCredentials = async () => {
@@ -421,13 +565,13 @@ export const initializeDemoCredentials = async () => {
     {
       type: "CasteCertificate",
       issuer: {
-        id: "did:ethr:0x9876543210987654321098765432109876543210",
-        name: "Karnataka Government",
-        ensDomain: "karnataka.gov.eth"
+        id: "did:ethr:0x1234567890123456789012345678901234567890",
+        name: "Student Self-Issued",
+        ensDomain: "student.eth"
       },
       subject: {
         id: "did:ethr:0x1234567890123456789012345678901234567890",
-        name: "Rishal D"
+        name: "Student Self-Issued"
       },
       issuanceDate: "2024-01-15T10:30:00.000Z",
       expirationDate: "2025-01-15T10:30:00.000Z",
@@ -436,18 +580,20 @@ export const initializeDemoCredentials = async () => {
         category: "Scheduled Caste",
         district: "Bangalore",
         state: "Karnataka"
-      }
+      },
+      status: 'active' as const,
+      isSelfIssued: true
     },
     {
       type: "IncomeCertificate",
       issuer: {
-        id: "did:ethr:0x9876543210987654321098765432109876543210",
-        name: "Karnataka Government",
-        ensDomain: "karnataka.gov.eth"
+        id: "did:ethr:0x1234567890123456789012345678901234567890",
+        name: "Student Self-Issued",
+        ensDomain: "student.eth"
       },
       subject: {
         id: "did:ethr:0x1234567890123456789012345678901234567890",
-        name: "Rishal D"
+        name: "Student Self-Issued"
       },
       issuanceDate: "2024-01-10T14:20:00.000Z",
       expirationDate: "2025-01-10T14:20:00.000Z",
@@ -456,18 +602,20 @@ export const initializeDemoCredentials = async () => {
         currency: "INR",
         financialYear: "2023-24",
         district: "Bangalore"
-      }
+      },
+      status: 'active' as const,
+      isSelfIssued: true
     },
     {
       type: "AcademicCertificate",
       issuer: {
         id: "did:ethr:0x1234567890123456789012345678901234567890",
-        name: "University of Bangalore",
-        ensDomain: "bangalore.university.eth"
+        name: "Student Self-Issued",
+        ensDomain: "student.eth"
       },
       subject: {
         id: "did:ethr:0x1234567890123456789012345678901234567890",
-        name: "Rishal D"
+        name: "Student Self-Issued"
       },
       issuanceDate: "2024-01-20T09:15:00.000Z",
       expirationDate: "2029-01-20T09:15:00.000Z",
@@ -476,7 +624,9 @@ export const initializeDemoCredentials = async () => {
         specialization: "Computer Science",
         cgpa: 8.5,
         graduationYear: 2024
-      }
+      },
+      status: 'active' as const,
+      isSelfIssued: true
     }
   ];
 
